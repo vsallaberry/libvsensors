@@ -1,5 +1,5 @@
 #
-# vlib <https://github.com/vsallaberry/libvsensors>
+# libvsensors <https://github.com/vsallaberry/libvsensors>
 # Copyright (C) 2017 Vincent Sallaberry
 #
 # This program is free software; you can redistribute it and/or modify
