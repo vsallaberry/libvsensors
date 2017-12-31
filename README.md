@@ -1,25 +1,3 @@
-#
-# libvsensors <https://github.com/vsallaberry/libvsensors>
-# Copyright (C) 2017 Vincent Sallaberry
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License along
-# with this program; if not, write to the Free Software Foundation, Inc.,
-# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-#
-# ############################################################################
-#
-# Generic Sensors Management library.
-# (this lib uses vlib: <https://github.com/vsallaberry/vlib>).
 
 ## libvsensors
 --------------
@@ -33,6 +11,7 @@
 ## Overview
 **libvsensors** is a generic Sensors Management Library, including CPU, Memory, Network, SMC,
 initially written for OSX (10.11.6).
+This lib uses vlib (<https://github.com/vsallaberry/vlib>).
 
 ## System requirements
 - A somewhat capable compiler (gcc/clang), make (GNU,BSD), sh (sh/bash/ksh)
@@ -45,6 +24,9 @@ This is not an exhaustive list but the list of systems on which it has been buil
 - FreeBSD 11.1
 
 ## Compilation
+Make sure you clone the repository with '--recursive' option.
+    $ git clone --recursive https://github.com/vsallaberry/libvsensors
+
 Just type:
     $ make
 
@@ -59,7 +41,10 @@ To See how make understood the Makefile, you can type:
 
 ## Contact
 [vsallaberry@gmail.com]
+<https://github.com/vsallaberry/libvsensors>
 
 ## License
 GPLv3 or later. See LICENSE file.
+
+CopyRight : Copyright (C) 2017 Vincent Sallaberry
 
