@@ -1,3 +1,3 @@
-#define APP_BUILD_NUMBER 11
+#define APP_BUILD_NUMBER 52
 #define APP_VERSION 0.1
 #define INCLUDE_SOURCE
