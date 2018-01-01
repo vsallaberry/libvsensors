@@ -1,0 +1,3 @@
+[submodule "ext/vlib"]
+	path = ext/vlib
+	url = https://github.com/vsallaberry/vlib.git
