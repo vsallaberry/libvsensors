@@ -247,10 +247,22 @@ sensor_status_t sensor_value_tostring(const sensor_value_t * value, char *dst, s
 double          sensor_value_todouble(const sensor_value_t * value);
 
 /**
- * compare two sensor values
+ * Compare two sensor values
  * @return 0 on equality, non 0 if different in type or value.
  */
 int             sensor_value_compare(const sensor_value_t * v1, const sensor_value_t * v2);
+
+/**
+ * Get libvsensors version
+ * @return array of const char *, terminated by NULL.
+ */
+const char * libvsensors_get_version();
+
+/**
+ * Get libvsensors source code
+ */
+const char *const* libvsensors_get_source();
+
 
 #ifdef __cplusplus
 }
