@@ -350,7 +350,7 @@ const char * libvsensors_get_version() {
 
 #ifndef APP_INCLUDE_SOURCE
 const char *const* libvsensors_get_source() {
-    static const char * const source = { "libvsensors source not included in this build.\n", NULL };
+    static const char * const source[] = { "libvsensors source not included in this build.\n", NULL };
     return source;
 }
 #endif
