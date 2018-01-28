@@ -21,6 +21,7 @@
 # Generic Sensor Management Library.
 #
 # Generic Makefile for GNU-like or BSD-like make (paths with spaces not supported).
+#   demo of this Makefile with multiple languages: <https://github.com/vsallaberry/vmultilangdemo>
 #
 ############################################################################################
 
@@ -38,9 +39,9 @@ SRCDIR 		= src
 
 # SUBDIRS, put empty if there is no need to run make on sub directories.
 LIB_VLIBDIR	= ext/vlib
-SUBDIRS 	= 
+SUBDIRS 	=
 # SUBLIBS: libraries built from subdirs, needed for binary dependency. Put empty if none.
-SUBLIBS		= 
+SUBLIBS		=
 
 # INCDIRS: Folder where public includes are. It can be SRCDIR or even empty if
 # headers are only in SRCDIR. Use '.' for current directory.
