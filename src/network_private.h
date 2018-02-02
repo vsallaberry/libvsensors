@@ -19,19 +19,38 @@
 /* ------------------------------------------------------------------------
  * Generic Sensor Management Library.
  */
-#ifndef SENSOR_NETWORK_H
-#define SENSOR_NETWORK_H
+#ifndef SENSOR_NETWORK_PRIVATE_H
+#define SENSOR_NETWORK_PRIVATE_H
 
-#include "libvsensors/sensor.h"
+#include "network.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern const sensor_family_info_t g_sensor_family_network;
+/** Iternal struct where all network info is kept */
+typedef struct {
+    unsigned long ibytes;
+    unsigned long obytes;
+    unsigned long ibytespersec;
+    unsigned long obytespersec;
+} network_data_t;
+
+/** private/specific network family structure */
+typedef struct {
+    sensor_desc_t *     sensors_desc;
+    network_data_t      network_data;
+    network_data_t *    iface_data;
+    struct timeval      last_update_time;
+} priv_t;
+
+sensor_status_t network_get (sensor_family_t * family,
+                             network_data_t *data, struct timeval *elapsed_time);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif // ifdef SENSOR_NETWORK_PRIVATE_H
+
+

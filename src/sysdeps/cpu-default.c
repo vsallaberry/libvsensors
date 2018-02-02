@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Vincent Sallaberry
+ * Copyright (C) 2018 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,19 +19,14 @@
 /* ------------------------------------------------------------------------
  * Generic Sensor Management Library.
  */
-#ifndef SENSOR_NETWORK_H
-#define SENSOR_NETWORK_H
+#include "cpu_private.h"
 
-#include "libvsensors/sensor.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-extern const sensor_family_info_t g_sensor_family_network;
-
-#ifdef __cplusplus
+sensor_status_t cpu_get(sensor_family_t * family, struct timeval *elapsed) {
+    priv_t * priv = (priv_t *) family->priv;
+    (void)priv;
+    (void)elapsed;
+    (void)priv;
+    LOG_ERROR(family->log, "%s/%s(): NOT IMPLEMENTED ON THIS SYSTEM.\n", __FILE__, __func__);
+    return SENSOR_ERROR;
 }
-#endif
 
-#endif

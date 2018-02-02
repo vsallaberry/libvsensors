@@ -19,19 +19,45 @@
 /* ------------------------------------------------------------------------
  * Generic Sensor Management Library.
  */
-#ifndef SENSOR_NETWORK_H
-#define SENSOR_NETWORK_H
+#ifndef SENSOR_CPU_PRIVATE_H
+#define SENSOR_CPU_PRIVATE_H
 
-#include "libvsensors/sensor.h"
+#include "cpu.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern const sensor_family_info_t g_sensor_family_network;
+sensor_status_t cpu_get(sensor_family_t * family, struct timeval *elapsed);
+
+/** Internal struct where data for one cpu is kept */
+typedef struct {
+    unsigned long   sys;
+    unsigned long   user;
+    unsigned long   activity;
+    unsigned long   total;
+    unsigned char   sys_percent;
+    unsigned char   user_percent;
+    unsigned char   activity_percent;
+} cpu_tick_t;
+
+/** Internal struct where all cpu info is kept */
+typedef struct {
+    unsigned char   nb_cpus;
+    cpu_tick_t *    ticks;
+} cpu_data_t;
+
+/** private/specific network family structure */
+typedef struct {
+    sensor_desc_t *     sensors_desc;
+    cpu_data_t          cpu_data;
+    struct timeval      last_update_time;
+} priv_t;
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif // ifdef SENSOR_CPU_PRIVATE_H
+
+

@@ -28,8 +28,6 @@
 extern "C" {
 #endif
 
-int cpu_print (int argc, const char * argv[]);
-
 extern const sensor_family_info_t g_sensor_family_cpu;
 
 #ifdef __cplusplus
