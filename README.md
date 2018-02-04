@@ -13,7 +13,7 @@
 initially written for OSX (10.11.6).
 This lib uses vlib (<https://github.com/vsallaberry/vlib>).
 
-NOTE: This is a work in progress, this lib is not no fully operational yet.
+NOTE: This is a work in progress, this lib is not fully operational yet.
 
 ## System requirements
 - A somewhat capable compiler (gcc/clang), make (GNU,BSD), sh (sh/bash/ksh)
