@@ -26,6 +26,13 @@
 #include "cpu.h"
 #include "cpu_private.h"
 
+/* use sysconf instead of deprecated CLK_TCK
+#include <unistd.h>
+static clock_t libvsensors_clk_tck = 0;
+if (libvsensors_clk_tck == 0) {
+    libvsensors_clk_tck = sysconf(_SC_CLK_TCK);
+}*/
+
 /** family-specific free */
 static sensor_status_t family_free(sensor_family_t *family) {
     if (family->priv) {
