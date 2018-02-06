@@ -52,7 +52,7 @@ static sensor_status_t init_private_data(sensor_family_t *family) {
     priv_t * priv = (priv_t *) family->priv;
     priv->cpu_data.nb_cpus = 2; // FIXME;
     if ((priv->cpu_data.ticks = calloc(priv->cpu_data.nb_cpus + 1, sizeof(cpu_tick_t))) == NULL) { // FIXME
-        LOG_ERROR(family->log, "%s/%s(): cannot allocate cpu_ticks\n", __FILE__, __func__);
+        LOG_ERROR(family->log, "%s/%s(): cannot allocate cpu_ticks", __FILE__, __func__);
         return SENSOR_ERROR;
     }
     // Not Pretty but allows to have an initiliazed array with dynamic values.
@@ -73,16 +73,16 @@ static sensor_status_t init_private_data(sensor_family_t *family) {
 static sensor_status_t family_init(sensor_family_t *family) {
     // Sanity checks done before in sensor_init()
     if (family->priv != NULL) {
-        LOG_ERROR(family->log, "error: %s data already initialized\n", family->info->name);
+        LOG_ERROR(family->log, "error: %s data already initialized", family->info->name);
         family_free(family);
         return SENSOR_ERROR;
     }
     if ((family->priv = calloc(1, sizeof(priv_t))) == NULL) {
-        LOG_ERROR(family->log, "cannot allocate private %s data\n", family->info->name);
+        LOG_ERROR(family->log, "cannot allocate private %s data", family->info->name);
         return SENSOR_ERROR;
     }
     if (init_private_data(family) != SENSOR_SUCCESS) {
-        LOG_ERROR(family->log, "cannot initialize private %s data\n", family->info->name);
+        LOG_ERROR(family->log, "cannot initialize private %s data", family->info->name);
         free(family->priv);
         family->priv = NULL;
         return SENSOR_ERROR;

@@ -48,13 +48,13 @@ sensor_status_t network_get(sensor_family_t * family,
     char *  buf;
 
     if (sysctl(mib, sizeof(mib) / sizeof(*mib), NULL, &len, NULL, 0) < 0) {
-	    LOG_ERROR(family->log, "%s(): sysctl(null): %s\n", __func__, strerror(errno));
+	    LOG_ERROR(family->log, "%s(): sysctl(null): %s", __func__, strerror(errno));
 	    return SENSOR_ERROR;
     }
 
     buf = (char*) malloc(len);
     if (buf == NULL || sysctl(mib, sizeof(mib) / sizeof(*mib), buf, &len, NULL, 0) < 0) {
-        LOG_ERROR(family->log, "%s(): sysctl(buf): %s\n", __func__, strerror(errno));
+        LOG_ERROR(family->log, "%s(): sysctl(buf): %s", __func__, strerror(errno));
 	    if (buf)
             free(buf);
     	return SENSOR_ERROR;
@@ -110,7 +110,7 @@ sensor_status_t network_get(sensor_family_t * family,
         if_indextoname(ifm_index, if_name);
         LOG_INFO(family->log, "RTM_IFINFO%u #%d %s TYPE:%u UP:%d LO:%d I:%llu O:%llu FLAGS:%d"
                               " OACT:%d BCST:%d DBG:%d PPP:%d NOTR:%d RUNN:%d NOARP:%d PRO:%d"
-                              " ALLM:%d SIMP:%d APH:%d MCST:%d\n",
+                              " ALLM:%d SIMP:%d APH:%d MCST:%d",
                  ifm->ifm_type, ifm_index, if_name, ifi_type,
                  (ifm_flags & IFF_UP) != 0, (ifm_flags & IFF_LOOPBACK) != 0,
                  ibytes, obytes, ifm_flags,

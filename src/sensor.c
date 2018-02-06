@@ -67,19 +67,19 @@ sensor_ctx_t * sensor_init(slist_t * logs) {
             continue ;
         }
         if ((fam = calloc(1, sizeof(sensor_family_t))) == NULL) {
-            LOG_ERROR(sctx->log, "sensor family %s cannot be allocated\n", fam_info->name);
+            LOG_ERROR(sctx->log, "sensor family %s cannot be allocated", fam_info->name);
             continue ;
         }
         fam->info = fam_info;
         if (fam->info->init && fam->info->init(fam) != SENSOR_SUCCESS) {
-            LOG_ERROR(sctx->log, "sensor family %s cannot be initialized\n", fam->info->name);
+            LOG_ERROR(sctx->log, "sensor family %s cannot be initialized", fam->info->name);
             free(fam);
             continue ;
         }
         if ((sctx->families = slist_prepend(sctx->families, fam)) == NULL) {
-            LOG_ERROR(sctx->log, "sensor family %s cannot be registered\n", fam->info->name);
+            LOG_ERROR(sctx->log, "sensor family %s cannot be registered", fam->info->name);
             if (fam->info->free && fam->info->free(fam) != SENSOR_SUCCESS) {
-                LOG_ERROR(sctx->log, "sensor family %s cannot be freed\n", fam->info->name);
+                LOG_ERROR(sctx->log, "sensor family %s cannot be freed", fam->info->name);
             }
             free(fam);
         }
@@ -132,7 +132,7 @@ slist_t * sensor_watch_add(sensor_desc_t *sensor, sensor_watch_t *watch, sensor_
        return NULL;
     }
     if (watch == NULL) {
-        LOG_ERROR(sctx->log, "error: watch is NULL in %s\n", __func__);
+        LOG_ERROR(sctx->log, "error: watch is NULL in %s", __func__);
         return NULL;
     }
     SLIST_FOREACH_DATA(sctx->sensors, it_sensor, sensor_desc_t *) {
@@ -140,7 +140,7 @@ slist_t * sensor_watch_add(sensor_desc_t *sensor, sensor_watch_t *watch, sensor_
         || sensor == it_sensor) { // FIXME BOF
             sensor_sample_t * sample = calloc(1, sizeof(sensor_sample_t));
             if (sample == NULL) {
-                LOG_ERROR(sctx->log, "error: cannot allocate sensor sample in %s\n", __func__);
+                LOG_ERROR(sctx->log, "error: cannot allocate sensor sample in %s", __func__);
                 return sctx->watchs;
             }
             sample->desc = it_sensor;
@@ -200,11 +200,11 @@ slist_t * sensor_update_get(sensor_ctx_t *sctx) {
         return NULL;
     }
     if (sctx->watchs == NULL) {
-        LOG_VERBOSE(sctx->log, "warning in %s(): watch list is empty\n", __func__);
+        LOG_VERBOSE(sctx->log, "warning in %s(): watch list is empty", __func__);
         return NULL;
     }
     if (gettimeofday(&now, NULL) != 0) {
-        LOG_ERROR(sctx->log, "error gettimeofday: %s, in %s\n", strerror(errno), __func__);
+        LOG_ERROR(sctx->log, "error gettimeofday: %s, in %s", strerror(errno), __func__);
         return NULL;
     }
     SLIST_FOREACH_DATA(sctx->watchs, sensor, sensor_sample_t *) {
@@ -223,7 +223,7 @@ slist_t * sensor_update_get(sensor_ctx_t *sctx) {
                         updates = slist_prepend(updates, sensor);
                     }
                 } else {
-                    LOG_ERROR(sctx->log, "sensor '%s' update error\n", sensor->desc->label);
+                    LOG_ERROR(sctx->log, "sensor '%s' update error", sensor->desc->label);
                 }
             }
         }

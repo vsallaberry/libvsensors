@@ -90,16 +90,16 @@ static sensor_status_t init_private_data(sensor_family_t *family) {
 static sensor_status_t family_init(sensor_family_t *family) {
     // Sanity checks done before in sensor_init()
     if (family->priv != NULL) {
-        LOG_ERROR(family->log, "error: %s data already initialized\n", family->info->name);
+        LOG_ERROR(family->log, "error: %s data already initialized", family->info->name);
         family_free(family);
         return SENSOR_ERROR;
     }
     if ((family->priv = calloc(1, sizeof(priv_t))) == NULL) {
-        LOG_ERROR(family->log, "cannot allocate private %s data\n", family->info->name);
+        LOG_ERROR(family->log, "cannot allocate private %s data", family->info->name);
         return SENSOR_ERROR;
     }
     if (init_private_data(family) != SENSOR_SUCCESS) {
-        LOG_ERROR(family->log, "cannot initialize private %s data\n", family->info->name);
+        LOG_ERROR(family->log, "cannot initialize private %s data", family->info->name);
         free(family->priv);
         family->priv = NULL;
         return SENSOR_ERROR;
@@ -165,14 +165,14 @@ const sensor_family_info_t g_sensor_family_memory = {
 static sensor_status_t memory_get (sensor_family_t * family, memory_data_t *data) {
 	mach_port_t host = mach_host_self();
 	if (!host) {
-		LOG_ERROR(family->log, "Could not get mach reference.\n");
+		LOG_ERROR(family->log, "Could not get mach reference.");
 		return SENSOR_ERROR;
 	}
 
     vm_statistics_data_t vmStats;
 	mach_msg_type_number_t vmCount = HOST_VM_INFO_COUNT;
 	if (host_statistics(host, HOST_VM_INFO, (host_info_t)&vmStats, &vmCount) != KERN_SUCCESS) {
-        LOG_ERROR(family->log, "Could not get mach reference.\n");
+        LOG_ERROR(family->log, "Could not get mach reference.");
         return SENSOR_ERROR;
 	}
 
@@ -189,7 +189,7 @@ static sensor_status_t memory_get (sensor_family_t * family, memory_data_t *data
 #else
 static sensor_status_t memory_get (sensor_family_t * family, memory_data_t *data) {
     (void)data;
-    LOG_ERROR(family->log, "%s/%s(): NOT IMPLEMENTED ON THIS SYSTEM.\n", __FILE__, __func__);
+    LOG_ERROR(family->log, "%s/%s(): NOT IMPLEMENTED ON THIS SYSTEM.", __FILE__, __func__);
     return SENSOR_ERROR;
 }
 #endif /* ifdef *APPLE */

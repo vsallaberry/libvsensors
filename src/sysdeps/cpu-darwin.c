@@ -48,11 +48,11 @@ static sensor_status_t cpu_get2(sensor_family_t * family,
     struct loadavg loadavg;
     size_t len = sizeof(loadavg);
     if (sysctl(mib, sizeof(mib) / sizeof(*mib), &loadavg, &len, NULL, 0) < 0) {
-	    LOG_INFO(family->log, "%s(): sysctl(buf): %s\n", __func__, strerror(errno));
+	    LOG_INFO(family->log, "%s(): sysctl(buf): %s", __func__, strerror(errno));
 	    return SENSOR_ERROR;
     }
 
-    LOG_INFO(family->log, "CPU FSSCALE:%ld L0 %u(%f) L1: %u(%f) L2: %u(%f)\n",
+    LOG_INFO(family->log, "CPU FSSCALE:%ld L0 %u(%f) L1: %u(%f) L2: %u(%f)",
            loadavg.fscale,
            loadavg.ldavg[0], (float)loadavg.ldavg[0]/loadavg.fscale,
            loadavg.ldavg[1], (float)loadavg.ldavg[1]/loadavg.fscale,
@@ -77,13 +77,13 @@ sensor_status_t cpu_get(sensor_family_t * family, struct timeval *elapsed) {
                        &n_cpus,
                        (processor_info_array_t*)&pinfo,
                        &info_count) != KERN_SUCCESS) {
-        LOG_ERROR(family->log, "%s/%s(): error host_processo_info\n", __FILE__, __func__);
+        LOG_ERROR(family->log, "%s/%s(): error host_processo_info", __FILE__, __func__);
         return SENSOR_ERROR;
     }
     if (data->nb_cpus == 0) {
         // array size = 1 global measure + 1 per cpu.
         if ((data->ticks = calloc(n_cpus + 1, sizeof(cpu_tick_t))) == NULL) {
-            LOG_ERROR(family->log, "%s/%s(): cannot allocate cpu_ticks\n", __FILE__, __func__);
+            LOG_ERROR(family->log, "%s/%s(): cannot allocate cpu_ticks", __FILE__, __func__);
             return SENSOR_ERROR;
         }
         data->nb_cpus = n_cpus;
@@ -119,7 +119,7 @@ sensor_status_t cpu_get(sensor_family_t * family, struct timeval *elapsed) {
         data->ticks[i].user = user;
         data->ticks[i].sys = sys;
         LOG_INFO(family->log, "CPU%u %u%% (usr:%u%% sys:%u%%) "
-                              "user:%u nice:%u sys:%u idle:%u CLK_TCK:%u\n",
+                              "user:%u nice:%u sys:%u idle:%u CLK_TCK:%u",
                i,
                data->ticks[i].activity_percent,
                data->ticks[i].user_percent,

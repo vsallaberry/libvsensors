@@ -25,7 +25,7 @@ sensor_status_t network_get(sensor_family_t * family,
                             network_data_t *data, struct timeval *elapsed) {
     (void)data;
     (void)elapsed;
-    LOG_ERROR(family->log, "%s/%s(): NOT IMPLEMENTED ON THIS SYSTEM.\n", __FILE__, __func__);
+    LOG_ERROR(family->log, "%s/%s(): NOT IMPLEMENTED ON THIS SYSTEM.", __FILE__, __func__);
     return SENSOR_ERROR;
 }
 

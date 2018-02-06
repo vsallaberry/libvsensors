@@ -26,7 +26,7 @@ sensor_status_t cpu_get(sensor_family_t * family, struct timeval *elapsed) {
     (void)priv;
     (void)elapsed;
     (void)priv;
-    LOG_ERROR(family->log, "%s/%s(): NOT IMPLEMENTED ON LINUX.\n", __FILE__, __func__);
+    LOG_ERROR(family->log, "%s/%s(): NOT IMPLEMENTED ON LINUX.", __FILE__, __func__);
     return SENSOR_ERROR;
 }
 

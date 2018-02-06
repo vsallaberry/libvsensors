@@ -30,7 +30,7 @@ static sensor_status_t family_init(sensor_family_t *family) {
     if (1) {
        return SENSOR_SUCCESS;
     } else {
-       LOG_ERROR(family->log, "%s(): failed!\n", __func__);
+       LOG_ERROR(family->log, "%s(): failed!", __func__);
        return SENSOR_ERROR;
     }
 }
@@ -40,7 +40,7 @@ static sensor_status_t family_free(sensor_family_t *family) {
     if (1) {
        return SENSOR_SUCCESS;
     } else {
-       LOG_ERROR(family->log, "%s(): failed!\n", __func__);
+       LOG_ERROR(family->log, "%s(): failed!", __func__);
        return SENSOR_ERROR;
     }
 }
@@ -50,7 +50,7 @@ static slist_t * family_list(sensor_family_t *family) {
     if (1) {
        return NULL;
     } else {
-       LOG_ERROR(family->log, "%s(): failed!\n", __func__);
+       LOG_ERROR(family->log, "%s(): failed!", __func__);
        return NULL;
     }
 }
@@ -61,7 +61,7 @@ static sensor_status_t family_update(sensor_sample_t *sensor, struct timeval * n
     if (1) {
        return SENSOR_SUCCESS;
     } else {
-       LOG_ERROR(sensor->desc->family->log, "%s(): failed!\n", __func__);
+       LOG_ERROR(sensor->desc->family->log, "%s(): failed!", __func__);
        return SENSOR_ERROR;
     }
 }
