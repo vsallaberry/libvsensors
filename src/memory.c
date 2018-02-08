@@ -30,27 +30,7 @@
 #include <unistd.h>
 
 #include "memory.h"
-
-/** Iternal struct where all memory info is kept */
-typedef struct {
-    unsigned long   active;
-    unsigned long   inactive;
-    unsigned long   wired;
-    unsigned long   free;
-    unsigned long   used;
-    unsigned long   total;
-    unsigned int    used_percent;
-} memory_data_t;
-
-/** private/specific family structure */
-typedef struct {
-    sensor_desc_t *     sensors_desc;
-    memory_data_t       memory_data;
-    struct timeval      last_update_time;
-} priv_t;
-
-/* internal functions */
-static sensor_status_t memory_get (sensor_family_t * family, memory_data_t *data);
+#include "memory_private.h"
 
 /** family-specific free */
 static sensor_status_t family_free(sensor_family_t *family) {
@@ -149,50 +129,6 @@ const sensor_family_info_t g_sensor_family_memory = {
     .update = family_update,
     .list = family_list,
 };
-
-#ifdef __APPLE__
-#include <mach/mach.h>
-#include <mach/mach_error.h>
-
-/**
- * Internal memory info update.
- * From:
- *  	check_osx_mem
- *  	by Jedda Wignall
- *	    http://jedda.me
- *	    Tool to report OSX memory utilization to nagios and Groundwork server.
- */
-static sensor_status_t memory_get (sensor_family_t * family, memory_data_t *data) {
-	mach_port_t host = mach_host_self();
-	if (!host) {
-		LOG_ERROR(family->log, "Could not get mach reference.");
-		return SENSOR_ERROR;
-	}
-
-    vm_statistics_data_t vmStats;
-	mach_msg_type_number_t vmCount = HOST_VM_INFO_COUNT;
-	if (host_statistics(host, HOST_VM_INFO, (host_info_t)&vmStats, &vmCount) != KERN_SUCCESS) {
-        LOG_ERROR(family->log, "Could not get mach reference.");
-        return SENSOR_ERROR;
-	}
-
-    data->active = ((natural_t)vmStats.active_count) * (unsigned long)((natural_t)vm_page_size);
-    data->inactive = ((natural_t)vmStats.inactive_count) * (unsigned long)((natural_t)vm_page_size);
-    data->wired = ((natural_t)vmStats.wire_count) * (unsigned long)((natural_t)vm_page_size);
-    data->free = ((natural_t)vmStats.free_count) * (unsigned long)((natural_t)vm_page_size);
-    data->used = data->active + data->wired;
-    data->total = data->active + data->inactive + data->free + data->wired;
-    data->used_percent = ((data->used/1024.0) / (data->total/1024.0)) * 100;
-
-    return SENSOR_SUCCESS;
-}
-#else
-static sensor_status_t memory_get (sensor_family_t * family, memory_data_t *data) {
-    (void)data;
-    LOG_ERROR(family->log, "%s/%s(): NOT IMPLEMENTED ON THIS SYSTEM.", __FILE__, __func__);
-    return SENSOR_ERROR;
-}
-#endif /* ifdef *APPLE */
 
 /** to be removed */
 int memory_print () {

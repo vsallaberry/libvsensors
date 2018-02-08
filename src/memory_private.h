@@ -19,19 +19,39 @@
 /* ------------------------------------------------------------------------
  * Generic Sensor Management Library.
  */
-#ifndef SENSOR_MEMORY_H
-#define SENSOR_MEMORY_H
+#ifndef SENSOR_MEMORY_PRIVATE_H
+#define SENSOR_MEMORY_PRIVATE_H
 
-#include "libvsensors/sensor.h"
+#include "memory.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern const sensor_family_info_t g_sensor_family_memory;
+/** Iternal struct where all memory info is kept */
+typedef struct {
+    unsigned long   active;
+    unsigned long   inactive;
+    unsigned long   wired;
+    unsigned long   free;
+    unsigned long   used;
+    unsigned long   total;
+    unsigned int    used_percent;
+} memory_data_t;
+
+/** private/specific family structure */
+typedef struct {
+    sensor_desc_t *     sensors_desc;
+    memory_data_t       memory_data;
+    struct timeval      last_update_time;
+} priv_t;
+
+sensor_status_t memory_get (sensor_family_t * family, memory_data_t *data);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif // ifdef SENSOR_MEMORY_PRIVATE_H
+
+

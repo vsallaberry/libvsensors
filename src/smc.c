@@ -41,31 +41,28 @@ static sensor_status_t SMCClose() {
 }
 
 sensor_status_t smc_family_init(sensor_family_t *family) {
-    (void)family;
     if (SMCOpen() == SENSOR_SUCCESS) {
        return SENSOR_SUCCESS;
     } else {
-       fprintf(stderr, "%s(): SMCOpen() failed!\n", __func__);
+       LOG_ERROR(family->log, "SMCOpen() failed!");
        return SENSOR_ERROR;
     }
 }
 
 sensor_status_t smc_family_free(sensor_family_t *family) {
-    (void)family;
     if (SMCClose() == SENSOR_SUCCESS) {
        return SENSOR_SUCCESS;
     } else {
-       fprintf(stderr, "%s(): SMCClose() failed!\n", __func__);
+       LOG_ERROR(family->log, "SMCClose() failed!");
        return SENSOR_ERROR;
     }
 }
 
 slist_t * smc_family_list(sensor_family_t *family) {
-    (void)family;
     if (1) {
        return NULL;
     } else {
-       fprintf(stderr, "%s(): SMCClose() failed!\n", __func__);
+       LOG_ERROR(family->log, "SMCList() failed!");
        return NULL;
     }
 }
