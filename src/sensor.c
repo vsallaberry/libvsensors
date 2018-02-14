@@ -344,13 +344,14 @@ int sensor_value_compare(const sensor_value_t * v1, const sensor_value_t * v2) {
 }
 
 const char * libvsensors_get_version() {
-    return BUILD_APPNAME " v" APP_VERSION " built on " __DATE__ ", " __TIME__ \
-           " from git-rev " BUILD_GITREV;
+    return OPT_VERSION_STRING(BUILD_APPNAME, APP_VERSION, "git:" BUILD_GITREV);
 }
 
 #ifndef APP_INCLUDE_SOURCE
 const char *const* libvsensors_get_source() {
-    static const char * const source[] = { "libvsensors source not included in this build.\n", NULL };
+    static const char * const source[] = {
+        BUILD_APPNAME " source not included in this build.\n", NULL
+    };
     return source;
 }
 #endif
