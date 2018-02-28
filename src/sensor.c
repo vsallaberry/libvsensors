@@ -48,7 +48,7 @@ struct sensor_ctx_s {
     slist_t *       watchs;
     slist_t *       sensors;
     int             flags;
-    log_ctx_t *     log;
+    log_t *         log;
 };
 
 sensor_ctx_t * sensor_init(slist_t * logs) {

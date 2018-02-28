@@ -46,7 +46,11 @@
 #define SENSOR_SENSOR_H
 
 #include <sys/time.h>
+#ifdef __cplusplus
+#include <ctime>
+#else
 #include <time.h>
+#endif
 
 #include "vlib/slist.h"
 #include "vlib/log.h"
@@ -123,7 +127,7 @@ typedef struct {
  */
 struct sensor_family_s {
     const sensor_family_info_t *    info;
-    log_ctx_t *                     log;
+    log_t *                         log;
     void *                          priv;
 };
 
