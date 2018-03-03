@@ -44,6 +44,9 @@ To See how make understood the Makefile, you can type:
 When making without version.h created (not the case for this repo), some old
 bsd make can stop. Just type again '$ make' and it will be fine.
 
+As libvsensors uses vlib, it should be linked with pthread (-lpthread),
+and on linux, rt, dl (-lrt -ldl).
+
 ## Contact
 [vsallaberry@gmail.com]  
 <https://github.com/vsallaberry/libvsensors>
