@@ -55,7 +55,7 @@ static slist_t * family_list(sensor_family_t *family) {
     }
 }
 
-static sensor_status_t family_update(sensor_sample_t *sensor, struct timeval * now) {
+static sensor_status_t family_update(sensor_sample_t *sensor, const struct timeval * now) {
     (void)sensor; //TODO
     (void)now; //TODO
     if (1) {

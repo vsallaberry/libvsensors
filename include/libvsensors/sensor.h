@@ -39,12 +39,13 @@
  *        watch_list = sensor_watch_load()
  *          (clean with sensor_watch_free(watchlist))
  * (C) Watch
- *     update_list = sensor_update_get(watch_list)
+ *     update_list = sensor_update_get(watch_list, NULL)
  *       (clean with sensor_update_free(update_list))
  */
 #ifndef SENSOR_SENSOR_H
 #define SENSOR_SENSOR_H
 
+#include <sys/types.h>
 #include <sys/time.h>
 #ifdef __cplusplus
 #include <ctime>
@@ -118,7 +119,7 @@ typedef struct {
     sensor_status_t     (*init)(struct sensor_family_s *f);
     sensor_status_t     (*free)(struct sensor_family_s *f);
     slist_t *           (*list)(struct sensor_family_s *f);
-    sensor_status_t     (*update)(struct sensor_sample_s *sensor, struct timeval * now);
+    sensor_status_t     (*update)(struct sensor_sample_s *sensor, const struct timeval * now);
 } sensor_family_info_t;
 
 
@@ -191,6 +192,7 @@ sensor_status_t  sensor_free(sensor_ctx_t * sctx);
 /**
  * Get the list of supported sensors
  * User must clean it with sensor_list_free().
+ * @param sctx the sensor context
  * @return slist_t *<sensor_desc_t>
  */
 slist_t *       sensor_list_get(sensor_ctx_t *sctx);
@@ -231,9 +233,13 @@ slist_t *       sensor_watch_load(const char * path);
  * Get the list of updated sensors, among watch list, according to update interval.
  * User must clean the updated_list with sensor_update_free() once
  * it has been used, independently of watch_list.
+ * @param sctx the sensor context
+ * @param now a struct timeval pointer to indicate current time, or NULL to let
+ *            libvsensors evaluate time. now is a correct relative time, it can
+ *            be the real date, but it is not required.
  * @return slist_t *<sensor_sample_t*>
  */
-slist_t *       sensor_update_get(sensor_ctx_t * sctx);
+slist_t *       sensor_update_get(sensor_ctx_t * sctx, const struct timeval * now);
 
 /** Clean the list of updated watched sensors */
 void            sensor_update_free(slist_t * updates);

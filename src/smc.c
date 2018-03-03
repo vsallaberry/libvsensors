@@ -67,7 +67,7 @@ slist_t * smc_family_list(sensor_family_t *family) {
     }
 }
 
-sensor_status_t smc_family_update(sensor_sample_t *sensor, struct timeval * now) {
+sensor_status_t smc_family_update(sensor_sample_t *sensor, const struct timeval * now) {
     (void)sensor;
     (void)now;
     return SENSOR_SUCCESS;

@@ -102,7 +102,7 @@ static slist_t * family_list(sensor_family_t *family) {
 }
 
 /** family-specific update */
-static sensor_status_t family_update(sensor_sample_t *sensor, struct timeval * now) {
+static sensor_status_t family_update(sensor_sample_t *sensor, const struct timeval * now) {
     // Sanity checks are done in sensor_update_get()
     priv_t * fpriv = (priv_t *) sensor->desc->family->priv;
     if (fpriv == NULL) {

@@ -192,9 +192,9 @@ slist_t * sensor_watch_load(const char * path) {
     return NULL;
 }
 
-slist_t * sensor_update_get(sensor_ctx_t *sctx) {
+slist_t * sensor_update_get(sensor_ctx_t *sctx, const struct timeval * now) {
     slist_t *updates = NULL;
-    struct timeval now;
+    struct timeval snow;
 
     if (sctx == NULL) {
         return NULL;
@@ -203,9 +203,12 @@ slist_t * sensor_update_get(sensor_ctx_t *sctx) {
         LOG_VERBOSE(sctx->log, "warning in %s(): watch list is empty", __func__);
         return NULL;
     }
-    if (gettimeofday(&now, NULL) != 0) {
-        LOG_ERROR(sctx->log, "error gettimeofday: %s, in %s", strerror(errno), __func__);
-        return NULL;
+    if (now == NULL) {
+        if (gettimeofday(&snow, NULL) != 0) {
+            LOG_ERROR(sctx->log, "error gettimeofday: %s, in %s", strerror(errno), __func__);
+            return NULL;
+        }
+        now = &snow;
     }
     SLIST_FOREACH_DATA(sctx->watchs, sensor, sensor_sample_t *) {
         if (sensor && sensor->desc && sensor->desc->family && sensor->desc->family->info
@@ -215,10 +218,10 @@ slist_t * sensor_update_get(sensor_ctx_t *sctx) {
                 .tv_usec    = (sensor->watch.update_interval_ms % 1000) * 1000,
             };
             timeradd(&nexttick, &sensor->last_update_time, &nexttick);
-            if (timercmp(&now, &nexttick, >=)) {
+            if (timercmp(now, &nexttick, >=)) {
                 sensor_value_t prev_value = sensor->value; // FIXME perfs ? + FIXME initial value
-                if (sensor->desc->family->info->update(sensor, &now) == SENSOR_SUCCESS) {
-                    sensor->last_update_time = now;
+                if (sensor->desc->family->info->update(sensor, now) == SENSOR_SUCCESS) {
+                    sensor->last_update_time = *now;
                     if (sensor_value_compare(&prev_value, &sensor->value) != 0) {
                         updates = slist_prepend(updates, sensor);
                     }
