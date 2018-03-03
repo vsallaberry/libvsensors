@@ -266,7 +266,7 @@ int             sensor_value_compare(const sensor_value_t * v1, const sensor_val
  * Get libvsensors version
  * @return array of const char *, terminated by NULL.
  */
-const char * libvsensors_get_version();
+const char *    libvsensors_get_version();
 
 /**
  * Get libvsensors source code
