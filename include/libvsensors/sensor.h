@@ -70,7 +70,7 @@ typedef struct sensor_sample_s sensor_sample_t;
  */
 typedef enum {
    SENSOR_SUCCESS = 0,
-   SENSOR_ERROR = -1,
+   SENSOR_ERROR = -1
 } sensor_status_t;
 
 /**
