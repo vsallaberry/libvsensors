@@ -147,9 +147,9 @@ TR		= tr
 GIT		= git
 DIFF		= diff
 UNIQ		= uniq
-INSTALL		= install -c -m 0644
-INSTALLBIN	= install -c -m 0755
-INSTALLDIR	= install -c -d -m 0755
+INSTALL		= install -m 0644
+INSTALLBIN	= install -m 0755
+INSTALLDIR	= install -d -m 0755
 VALGRIND	= valgrind
 VALGRIND_ARGS	= --leak-check=full --track-origins=yes --show-leak-kinds=all -v
 MKTEMP		= mktemp
