@@ -271,8 +271,7 @@ const char *    libvsensors_get_version();
 /**
  * Get libvsensors source code
  */
-const char *const* libvsensors_get_source();
-
+int libvsensors_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx);
 
 #ifdef __cplusplus
 }
