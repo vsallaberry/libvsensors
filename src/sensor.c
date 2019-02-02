@@ -25,6 +25,7 @@
 #include <errno.h>
 
 #include "vlib/options.h"
+#include "vlib/util.h"
 #include "libvsensors/sensor.h"
 
 #include "version.h"
@@ -351,11 +352,11 @@ const char * libvsensors_get_version() {
 }
 
 #ifndef APP_INCLUDE_SOURCE
-const char *const* libvsensors_get_source() {
-    static const char * const source[] = {
-        BUILD_APPNAME " source not included in this build.\n", NULL
-    };
-    return source;
+# define APP_NO_SOURCE_STRING "\n/* #@@# FILE #@@# " BUILD_APPNAME "/* */\n" \
+                              BUILD_APPNAME " source not included in this build.\n"
+int libvsensors_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {
+    return vdecode_buffer(out, buffer, buffer_size, ctx,
+                          APP_NO_SOURCE_STRING, sizeof(APP_NO_SOURCE_STRING) - 1);
 }
 #endif
 
