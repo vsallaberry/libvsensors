@@ -6,6 +6,8 @@
 /.clang_complete
 /Build.java
 /build.h
+/build.make
+/configure.log
 /libvsensors.a
 /obj/
 /src/FlexLexer.h
