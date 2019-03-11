@@ -57,7 +57,8 @@ When making without version.h created (not the case for this repo), some old
 bsd make can stop. Just type again '$ make' and it will be fine.  
 
 When you link **libvsensors** with a program, as it uses **vlib**,
-you need pthread (-lpthread), zlib (-lz), and on linux, rt, dl (-lrt -ldl).
+you need pthread (-lpthread), rt on linux (-lrt), and optionally zlib 
+(CONFIG\_ZLIB, -lz), ncurses (CONFIG\_CURSES, -lncurses).
 
 ### Using git submodules
 When your project uses git submodules, it is a good idea to group
@@ -105,6 +106,7 @@ and using appropriate include dirs for gcc '-I<IncludeDir>' (INCDIRS):
     SUBDIRS         = $(LIBVSENSORSDIR)
     SUBLIBS         = $(LIBVSENSORSDIR)/libvsensors.a
     INCDIRS         = $(LIBVSENSORSDIR)/include
+    CONFIG_CHECK    = zlib
 
 WORK-IN-PROGRESS...
 
