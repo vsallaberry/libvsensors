@@ -539,13 +539,15 @@ BCOMPAT_SED_YYPREFIX=$(SED) -n -e \
 # inclusion by a shell command '!=' or '$(shell ...)'.
 # Here, if .alldeps does not exit, we include version.h (containing only lines starting with
 # dash(#), so that it can be parsed by make and do nothing), and the OBJs will depends on
-# $(OBJDEPS_version.h). In the same time, we create .alldeps.d containing inclusion of
-# all .d files, created with default headers dependency (OBJ depends on all includes), that
-# will be used on next 'make' and overrided by gcc -MMD.
+# $(CONFIG_OBJDEPS_NOJAVA_version.h). In the same time, we create .alldeps.d containing
+# inclusion of all .d files, created with default headers dependency (OBJ depends on all
+# includes), that will be used on next 'make' and overrided by gcc -MMD.
 # Additionnaly, we use this command to populate git submodules if needed.
 #
 cmd_DEBUGMAKEFILE=false
-OBJDEPS_$(VERSIONINC)	= $(ALLMAKEFILES) $(INCLUDES) $(GENINC)
+CONFIG_OBJDEPS_NOJAVA_$(VERSIONINC)	= $(ALLMAKEFILES) $(INCLUDES) $(GENINC)
+CONFIG_OBJDEPS_NOJAVA_$(CONFIGMAKE)	= $(CONFIG_OBJDEPS_NOJAVA_$(VERSIONINC))
+CONFIG_OBJDEPS_NOJAVA_$(INCLUDEDEPS)	=
 DEPS			:= $(OBJ:.o=.d) $(SRCINC_STR:.c=.d) $(SRCINC_Z:.c=.d)
 INCLUDEDEPS		:= .alldeps.d
 CONFIGMAKE_REC_FILE	:= .configmake-recursion
@@ -559,7 +561,7 @@ cmd_SINCLUDEDEPS	= inc=1; ret=true; $(RM) -f '$(CONFIGMAKE_REC_FILE)' $(STDOUT_T
 			      if $(TEST) -n "$${f}" -a \( -z "$${inc}" -o ! -e "$${f}.d" \) ; then \
 			          dir=`dirname "$${f}"`; $(TEST) -d "$${dir}" || $(MKDIR) -p "$${dir}" || echo ">> f:$${f} d:$${dir} mkdir" $(STDOUT_TO_ERR); \
 			          $(TEST) "$${f}.o" = "$(JAVAOBJ)" && $(PRINTF) '\n' > "$${f}.d" \
-			            || $(PRINTF) -- "$${f}.o: $(OBJDEPS_version.h)\n" > "$${f}.d"; \
+			            || $(PRINTF) -- "$${f}.o: $(CONFIG_OBJDEPS_NOJAVA_$(VERSIONINC))\n" > "$${f}.d"; \
 			          $(PRINTF) -- "include $${f}.d\n" >> $(INCLUDEDEPS); \
 			      fi; \
 			  done; \
@@ -580,8 +582,9 @@ cmd_CONFIGMAKE_RECURSE		= { $(TEST) -e '$(CONFIGMAKE_REC_FILE)' && ret=true || r
 				    $(cmd_DEBUGMAKEFILE) && { $(PRINTF) "$(NAME): target:$@ ?:$? rec-done:$${ret}\n"; } || true; $${ret}; }
 CONFIG_OBJDEPS_$(VERSIONINC)	:=
 CONFIG_OBJDEPS_$(INCLUDEDEPS) 	:= $(ALLMAKEFILES) $(VERSIONINC) $(CONFIGINC) $(BUILDINC)
-CONFIG_OBJDEPS_$(CONFIGMAKE) 	:= $(ALLMAKEFILES) $(INCLUDES) $(GENINC)
+CONFIG_OBJDEPS_$(CONFIGMAKE) 	:= $(ALLMAKEFILES) $(VERSIONINC) $(CONFIGINC) $(BUILDINC)
 CONFIG_OBJDEPS			:= $(CONFIG_OBJDEPS_$(SINCLUDEDEPS))
+CONFIG_OBJDEPS_NOJAVA		:= $(CONFIG_OBJDEPS_NOJAVA_$(SINCLUDEDEPS))
 
 LIB$(CONFIG_OBJDEPS):=
 BIN$(CONFIG_OBJDEPS):=
@@ -608,7 +611,7 @@ SRCINC		:= $(tmp_SRCINC)
 
 SRC		:= $(SRCINC) $(SRC)
 OBJ		:= $(SRCINC:.c=.o) $(OBJ)
-OBJ_NOJAVA	:= $(SRCINC:.c=.o) $(OBJ)
+OBJ_NOJAVA	:= $(SRCINC:.c=.o) $(OBJ_NOJAVA)
 ############################################################################################
 
 LICENSE		= LICENSE
@@ -795,7 +798,7 @@ $(JAVAOBJ): $(JAVASRC)
 	       || { $(MKDIR) -p "$(BUILDDIR)/$${dir}"; mv "$${f}" "$(BUILDDIR)/$${dir}"; }; \
 	 done; $(RM) -Rf "$(TMPCLASSESDIR)"
 	$(GCJ) $(JFLAGS) -d $(BUILDDIR) -c -o $@ $(CLASSES:.class=*.class)
-$(JCNIINC): $(ALLMAKEFILES) $(BUILDINC) $(CONFIG_OBJDEPS)
+$(JCNIINC): $(ALLMAKEFILES) $(BUILDINC)
 
 #$(JCNISRC:.cc=.o) : $(JCNIINC) # usefull without -MD
 #$(JCNIOBJ): $(JCNIINC) # Useful without -MD
@@ -824,7 +827,7 @@ $(JAR): $(JAVASRC) $(SUBLIBS) $(MANIFEST) $(ALLMAKEFILES)
 
 ### WITH -MD
 $(OBJ): $(CONFIG_OBJDEPS)
-$(OBJ_NOJAVA): $(OBJDEPS_$(SINCLUDEDEPS)) $(CONFIG_OBJDEPS)
+$(OBJ_NOJAVA): $(CONFIG_OBJDEPS_NOJAVA)
 $(GENSRC): $(CONFIG_OBJDEPS)
 $(GENJAVA): $(CONFIG_OBJDEPS)
 $(CLASSES): $(CONFIG_OBJDEPS)
