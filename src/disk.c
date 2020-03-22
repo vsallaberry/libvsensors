@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Vincent Sallaberry
+ * Copyright (C) 2017-2020 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,8 +25,12 @@
 
 #include "disk.h"
 
+sensor_status_t sysdep_disk_support(sensor_family_t * family, const char * label);
+
 static sensor_status_t family_init(sensor_family_t *family) {
-    (void)family; //TODO
+    if (sysdep_disk_support(family, NULL) != SENSOR_SUCCESS) {
+        return SENSOR_NOT_SUPPORTED;
+    }
     if (1) {
        return SENSOR_SUCCESS;
     } else {

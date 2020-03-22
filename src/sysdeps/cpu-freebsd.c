@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Vincent Sallaberry
+ * Copyright (C) 2020 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * Credits to Bill Wilson, Ben Hines and other gkrellm developers
@@ -21,19 +21,16 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 /* ------------------------------------------------------------------------
- * Generic Sensor Management Library.
+ * freebsd cpu interface for Generic Sensor Management Library.
  */
-#include <sys/types.h>
-#ifndef __APPLE__
-# warning "building cpu-darwin.c without __APPLE__ defined"
-#endif
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/sysctl.h>
+#include <sys/resource.h>
 
-#include <mach/mach_init.h>
-#include <mach/mach_host.h>
-#include <mach/vm_map.h>
+#ifndef __FreeBSD_version
+# warning "building file without __FreeBSD_version defined"
+#endif
 
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +40,14 @@
 
 #include "cpu_private.h"
 
+typedef struct {
+    int             cp_time_mib[6];
+    size_t          cp_time_mib_sz;
+    int             cp_times_mib[6];
+    size_t          cp_times_mib_sz;
+    long *          cp_times;
+} sysdep_cpu_data_t;
+
 sensor_status_t sysdep_cpu_support(sensor_family_t * family, const char * label) {
     (void) label;
     (void) family;
@@ -50,9 +55,11 @@ sensor_status_t sysdep_cpu_support(sensor_family_t * family, const char * label)
 }
 
 unsigned int    sysdep_cpu_nb(sensor_family_t * family) {
+    cpu_priv_t *        priv = (cpu_priv_t *) family->priv;
+    sysdep_cpu_data_t * sysdep;
     int mib[] = {
 	    CTL_HW,
-	    HW_NCPU
+	    HW_NCPU /* hw.npus, kern.smp.maxcpus */
     };
     unsigned int    n_cpus;
     size_t          size = sizeof(n_cpus);
@@ -62,81 +69,84 @@ unsigned int    sysdep_cpu_nb(sensor_family_t * family) {
         errno = EAGAIN;
 	    return 0;
     }
+
+    if (priv->sysdep == NULL) {
+        if ((sysdep = priv->sysdep = malloc(sizeof(sysdep_cpu_data_t))) != NULL) {
+            sysdep->cp_times = calloc(n_cpus * CPUSTATES, sizeof(*sysdep->cp_times));
+            sysdep->cp_time_mib_sz = sizeof(sysdep->cp_time_mib) / sizeof(*sysdep->cp_time_mib);
+            sysdep->cp_times_mib_sz = sizeof(sysdep->cp_times_mib) / sizeof(*sysdep->cp_times_mib);
+            if (sysctlnametomib("kern.cp_time",  sysdep->cp_time_mib, &sysdep->cp_time_mib_sz) != 0) {
+                LOG_WARN(family->log, "error: sysctlnametomib('kern.cp_time')");
+                sysdep->cp_time_mib_sz = 0;
+            }
+            if (sysctlnametomib("kern.cp_times", sysdep->cp_times_mib, &sysdep->cp_times_mib_sz) != 0) {
+                LOG_WARN(family->log, "error: sysctlnametomib('kern.cp_times')");
+                sysdep->cp_times_mib_sz = 0;
+            }
+        }
+    }
+
     return n_cpus;
 }
 
 void            sysdep_cpu_destroy(sensor_family_t * family) {
-    (void) family;
-}
+    cpu_priv_t *        priv = (cpu_priv_t *) family->priv;
 
-#ifdef _DEBUG // TODO to be removed
-static sensor_status_t cpu_get2(sensor_family_t * family,
-                                cpu_data_t *data, struct timeval *elapsed) {
-    int mib[] = {
-	    CTL_VM,
-	    VM_LOADAVG,
-    };
-    struct loadavg loadavg;
-    size_t len = sizeof(loadavg);
-    if (sysctl(mib, sizeof(mib) / sizeof(*mib), &loadavg, &len, NULL, 0) < 0) {
-	    LOG_WARN(family->log, "%s(): sysctl(buf): %s", __func__, strerror(errno));
-	    return SENSOR_ERROR;
+    if (priv->sysdep != NULL) {
+        sysdep_cpu_data_t * sysdep = (sysdep_cpu_data_t *) priv->sysdep;
+
+        if (sysdep->cp_times != NULL)
+            free(sysdep->cp_times);
+        free(priv->sysdep);
+        priv->sysdep = NULL;
     }
-
-    LOG_DEBUG(family->log, "CPU FSSCALE:%ld L0 %u(%f) L1: %u(%f) L2: %u(%f)",
-           loadavg.fscale,
-           loadavg.ldavg[0], (float)loadavg.ldavg[0]/loadavg.fscale,
-           loadavg.ldavg[1], (float)loadavg.ldavg[1]/loadavg.fscale,
-           loadavg.ldavg[2], (float)loadavg.ldavg[2]/loadavg.fscale);
-
-    //data->usage = 55;
-    (void)elapsed;
-    (void)data;
-    return SENSOR_SUCCESS;
 }
-#endif
 
 sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed) {
     cpu_priv_t *                        priv = (cpu_priv_t *) family->priv;
     cpu_data_t *                        data = &priv->cpu_data;
-    processor_cpu_load_info_data_t *    pinfo = NULL;
-    mach_msg_type_number_t              info_count;
+    sysdep_cpu_data_t *                 sysdep = (sysdep_cpu_data_t *) priv->sysdep;
     unsigned int                        i;
-    unsigned int                        n_cpus;
+    size_t                              size;
 
-    if (host_processor_info (mach_host_self(),
-                       PROCESSOR_CPU_LOAD_INFO,
-                       &n_cpus,
-                       (processor_info_array_t*)&pinfo,
-                       &info_count) != KERN_SUCCESS) {
-        LOG_ERROR(family->log, "%s/%s(): error host_processo_info", __FILE__, __func__);
+    if (data->nb_cpus == 0 || sysdep == NULL || sysdep->cp_times == NULL)
         return SENSOR_ERROR;
-    }
 
-    if (n_cpus > data->nb_cpus) {
-        // array size = 1 global measure + 1 per cpu.
-        LOG_VERBOSE(family->log, "number of CPUs changed ! old:%u new:%u", data->nb_cpus, n_cpus);
-        if (data->ticks != NULL)
-            free(data->ticks);
-        if ((data->ticks = calloc(n_cpus + 1, sizeof(cpu_tick_t))) == NULL) {
-            data->nb_cpus = 0;
-            LOG_ERROR(family->log, "%s/%s(): cannot allocate cpu_ticks", __FILE__, __func__);
-            vm_deallocate (mach_task_self(), (vm_address_t) pinfo, info_count);
+    /* "kern.cp_time" -> all cpus */
+    /* "kern.cp_times" -> specific cpu */
+
+    if (data->nb_cpus > 1 && sysdep->cp_times_mib_sz > 0) {
+        size = sizeof(sysdep->cp_times) * CPUSTATES * data->nb_cpus;
+        if (sysctl(sysdep->cp_times_mib, sysdep->cp_times_mib_sz, sysdep->cp_times, &size, NULL, 0) < 0) {
+            LOG_WARN(family->log, "%s(): sysctl(cp_times): %s", __func__, strerror(errno));
+            errno = EAGAIN;
             return SENSOR_ERROR;
         }
-        data->nb_cpus = n_cpus;
+    } else if (sysdep->cp_time_mib_sz > 0) {
+        size = sizeof(sysdep->cp_times) * CPUSTATES * data->nb_cpus;
+        if (sysctl(sysdep->cp_time_mib, sysdep->cp_time_mib_sz, sysdep->cp_times, &size, NULL, 0) < 0) {
+            LOG_WARN(family->log, "%s(): sysctl(cp_time): %s", __func__, strerror(errno));
+            errno = EAGAIN;
+            return SENSOR_ERROR;
+        }
+        for (i = 1; i < data->nb_cpus; ++i) {
+            memcpy(sysdep->cp_times + (i * CPUSTATES), sysdep->cp_times, CPUSTATES * sizeof(*sysdep->cp_times));
+        }
+    } else {
+        errno = ENOENT;
+        return SENSOR_ERROR;
     }
 
     unsigned long global_total = 0;
     unsigned long global_activity = 0;
     unsigned long global_user = 0;
     unsigned long global_sys = 0;
-    for (i = 1; i <= n_cpus; i++) {
-        unsigned long sys = (pinfo[i-1].cpu_ticks[CPU_STATE_SYSTEM]);
-        unsigned long user = (pinfo[i-1].cpu_ticks[CPU_STATE_USER])
-                           + (pinfo[i-1].cpu_ticks[CPU_STATE_NICE]);
+    for (i = 1; i <= data->nb_cpus; i++) {
+        unsigned long sys = (sysdep->cp_times[(i-1) * CPUSTATES + CP_SYS]);
+        unsigned long user = (sysdep->cp_times[(i-1) * CPUSTATES + CP_USER])
+                           + (sysdep->cp_times[(i-1) * CPUSTATES + CP_NICE]);
         unsigned long activity = sys + user;
-        unsigned long total = activity + (pinfo[i-1].cpu_ticks [CPU_STATE_IDLE]);
+        unsigned long total = activity + (sysdep->cp_times[(i-1) * CPUSTATES + CP_IDLE]);
         global_total += total;
         global_activity += activity;
         global_sys += sys;
@@ -158,17 +168,16 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
         data->ticks[i].sys = sys;
         LOG_DEBUG(family->log,
             "CPU%u %u%% (usr:%u%% sys:%u%%) "
-            "user:%u nice:%u sys:%u idle:%u CLK_TCK:%u",
+            "user:%ld nice:%ld sys:%ld idle:%ld CLK_TCK:%lu",
             i,
             data->ticks[i].activity_percent,
             data->ticks[i].user_percent,
             data->ticks[i].sys_percent,
-            pinfo[i-1].cpu_ticks[CPU_STATE_USER],
-            pinfo[i-1].cpu_ticks[CPU_STATE_NICE],
-            pinfo[i-1].cpu_ticks[CPU_STATE_SYSTEM],
-            pinfo[i-1].cpu_ticks[CPU_STATE_IDLE], CLK_TCK);
+            sysdep->cp_times[(i-1) * CPUSTATES + CP_USER],
+            sysdep->cp_times[(i-1) * CPUSTATES + CP_NICE],
+            sysdep->cp_times[(i-1) * CPUSTATES + CP_SYS],
+            sysdep->cp_times[(i-1) * CPUSTATES + CP_IDLE], CLK_TCK);
     }
-    vm_deallocate (mach_task_self(), (vm_address_t) pinfo, info_count);
 
     if (elapsed != NULL) {
         data->ticks[0].activity_percent = (100 * (global_activity - data->ticks[0].activity) + 1) / CLK_TCK;
@@ -190,14 +199,10 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
     data->ticks[0].sys = global_sys;
 
     LOG_DEBUG(family->log,
-        "CPU %u%% (usr:%u sys:%u)\n",
+        "CPU %u%% (usr:%u sys:%u)",
         data->ticks[0].activity_percent,
         data->ticks[0].user_percent,
         data->ticks[0].sys_percent);
-
-#ifdef _DEBUG // TODO to be removed
-    cpu_get2(family, NULL, NULL);
-#endif
 
     return SENSOR_SUCCESS;
 }

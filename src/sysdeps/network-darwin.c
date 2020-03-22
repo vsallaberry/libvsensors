@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Vincent Sallaberry
+ * Copyright (C) 2017-2020 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -41,8 +41,16 @@
 
 #include "network_private.h"
 
-sensor_status_t network_get(sensor_family_t * family,
-                            network_data_t *data, struct timeval *elapsed) {
+sensor_status_t sysdep_network_support(sensor_family_t * family, const char * label) {
+    (void) label;
+    (void) family;
+    return SENSOR_SUCCESS;
+}
+
+sensor_status_t sysdep_network_get(
+                    sensor_family_t *   family,
+                    network_data_t *    data,
+                    struct timeval *    elapsed) {
     int     mib[] = { CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0 };
     size_t  len;
     char *  buf;
@@ -108,18 +116,20 @@ sensor_status_t network_get(sensor_family_t * family,
         char if_name[IF_NAMESIZE+1] = {0, };
         if_name[IF_NAMESIZE] = 0;
         if_indextoname(ifm_index, if_name);
-        LOG_INFO(family->log, "RTM_IFINFO%u #%d %s TYPE:%u UP:%d LO:%d I:%llu O:%llu FLAGS:%d"
-                              " OACT:%d BCST:%d DBG:%d PPP:%d NOTR:%d RUNN:%d NOARP:%d PRO:%d"
-                              " ALLM:%d SIMP:%d APH:%d MCST:%d",
-                 ifm->ifm_type, ifm_index, if_name, ifi_type,
-                 (ifm_flags & IFF_UP) != 0, (ifm_flags & IFF_LOOPBACK) != 0,
-                 ibytes, obytes, ifm_flags,
-                 (ifm_flags & IFF_OACTIVE) != 0, (ifm_flags & IFF_BROADCAST) != 0,
-                 (ifm_flags & IFF_DEBUG) != 0, (ifm_flags & IFF_POINTOPOINT) != 0,
-                 (ifm_flags & IFF_NOTRAILERS) != 0, (ifm_flags & IFF_RUNNING) != 0,
-                 (ifm_flags & IFF_NOARP) != 0, (ifm_flags & IFF_PROMISC) != 0,
-                 (ifm_flags & IFF_ALLMULTI) != 0, (ifm_flags & IFF_SIMPLEX) != 0,
-                 (ifm_flags & IFF_ALTPHYS) != 0, (ifm_flags & IFF_MULTICAST) != 0);
+        LOG_DEBUG(
+            family->log,
+            "RTM_IFINFO%u #%d %s TYPE:%u UP:%d LO:%d I:%llu O:%llu FLAGS:%d"
+            " OACT:%d BCST:%d DBG:%d PPP:%d NOTR:%d RUNN:%d NOARP:%d PRO:%d"
+            " ALLM:%d SIMP:%d APH:%d MCST:%d",
+            ifm->ifm_type, ifm_index, if_name, ifi_type,
+            (ifm_flags & IFF_UP) != 0, (ifm_flags & IFF_LOOPBACK) != 0,
+            ibytes, obytes, ifm_flags,
+            (ifm_flags & IFF_OACTIVE) != 0, (ifm_flags & IFF_BROADCAST) != 0,
+            (ifm_flags & IFF_DEBUG) != 0, (ifm_flags & IFF_POINTOPOINT) != 0,
+            (ifm_flags & IFF_NOTRAILERS) != 0, (ifm_flags & IFF_RUNNING) != 0,
+            (ifm_flags & IFF_NOARP) != 0, (ifm_flags & IFF_PROMISC) != 0,
+            (ifm_flags & IFF_ALLMULTI) != 0, (ifm_flags & IFF_SIMPLEX) != 0,
+            (ifm_flags & IFF_ALTPHYS) != 0, (ifm_flags & IFF_MULTICAST) != 0);
 
         total_ibytes += ibytes;
 		total_obytes += obytes;

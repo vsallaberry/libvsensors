@@ -1,6 +1,10 @@
 /*
- * Copyright (C) 2018-2019 Vincent Sallaberry
+ * Copyright (C) 2020 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
+ *
+ * Credits to Bill Wilson, Ben Hines and other gkrellm developers
+ * (gkrellm, GPLv3, https://git.srcbox.net/gkrellm) for some hints
+ * about the way to retrieve some os-specific system informations.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,19 +21,30 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 /* ------------------------------------------------------------------------
- * Generic Sensor Management Library.
+ * netbsd cpu interface for Generic Sensor Management Library.
  */
-#include "memory_private.h"
+#include <sys/sched.h>
 
-sensor_status_t     sysdep_memory_support(sensor_family_t * family, const char * label) {
-    (void) family;
+/* USE sysdeps/cpu-freebsd.c (except sysdep_cpu_support()) */
+#define __FreeBSD_version
+#define sysdep_cpu_support sysdep_cpu_support_freebsd
+#include "cpu-freebsd.c"
+#undef sysdep_cpu_support
+#undef __FreeBSD_version
+/* ! USE sysdeps/cpu-freebsd.c */
+
+#include <fnmatch.h>
+
+sensor_status_t sysdep_cpu_support(sensor_family_t * family, const char * label) {
     (void) label;
-    return SENSOR_ERROR;
+    (void) family;
+    if (label == NULL) {
+        return SENSOR_SUCCESS;
+    }
+    if (fnmatch("*cpu[0-9]*", label, 0) == 0) {
+        return SENSOR_ERROR;
+    }
+    return SENSOR_SUCCESS;
 }
 
-sensor_status_t sysdep_memory_get(sensor_family_t * family, memory_data_t *data) {
-    (void)family;
-    (void)data;
-    return SENSOR_ERROR;
-}
 

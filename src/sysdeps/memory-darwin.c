@@ -29,10 +29,16 @@
 
 #include "memory_private.h"
 
+sensor_status_t     sysdep_memory_support(sensor_family_t * family, const char * label) {
+    (void) family;
+    (void) label;
+    return SENSOR_SUCCESS;
+}
+
 /**
  * Internal memory info update.
  */
-sensor_status_t memory_get(sensor_family_t * family, memory_data_t *data) {
+sensor_status_t sysdep_memory_get(sensor_family_t * family, memory_data_t *data) {
 	mach_port_t host = mach_host_self();
 	if (!host) {
 		LOG_ERROR(family->log, "Could not get mach reference.");

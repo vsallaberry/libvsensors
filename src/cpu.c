@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Vincent Sallaberry
+ * Copyright (C) 2017-2020 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,6 +22,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <stdarg.h>
+
+#include "vlib/util.h"
 
 #include "cpu.h"
 #include "cpu_private.h"
@@ -36,48 +39,158 @@ if (libvsensors_clk_tck == 0) {
 /** family-specific free */
 static sensor_status_t family_free(sensor_family_t *family) {
     if (family->priv) {
-        priv_t *priv = (priv_t *) family->priv;
+        cpu_priv_t *priv = (cpu_priv_t *) family->priv;
         if (priv->cpu_data.ticks)
             free(priv->cpu_data.ticks);
-        if (priv->sensors_desc)
+        if (priv->sensors_desc) {
+            sensor_desc_t * desc;
+            for (desc = priv->sensors_desc; desc->label != NULL; ++desc)
+                free(desc->label);
             free(priv->sensors_desc);
+        }
+        sysdep_cpu_destroy(family);
         free(family->priv);
         family->priv = NULL;
     }
     return SENSOR_SUCCESS;
 }
 
+static sensor_status_t init_one_desc(
+                            sensor_family_t *       family,
+                            sensor_desc_t *         desc,
+                            sensor_value_type_t     type,
+                            void *                  key,
+                            const char *            fmt_label,
+                            ...) __attribute__((format(printf, 5, 6)));
+
+static sensor_status_t init_one_desc(
+                            sensor_family_t *       family,
+                            sensor_desc_t *         desc,
+                            sensor_value_type_t     type,
+                            void *                  key,
+                            const char *            fmt_label,
+                            ...) {
+    va_list valist;
+
+    va_start(valist, fmt_label);
+
+    vasprintf(&desc->label, fmt_label, valist);
+
+    if (sysdep_cpu_support(family, desc->label) != SENSOR_SUCCESS) {
+        if (desc->label != NULL)
+            free(desc->label);
+        va_end(valist);
+        return SENSOR_ERROR;
+    }
+
+    desc->type = type;
+    desc->family = family;
+    desc->key = key;
+
+    va_end(valist);
+
+    return SENSOR_SUCCESS;
+}
+
 /** family private data creation, including the sensor_desc_t data */
 static sensor_status_t init_private_data(sensor_family_t *family) {
-    priv_t * priv = (priv_t *) family->priv;
-    priv->cpu_data.nb_cpus = 2; // FIXME;
-    if ((priv->cpu_data.ticks = calloc(priv->cpu_data.nb_cpus + 1, sizeof(cpu_tick_t))) == NULL) { // FIXME
+    cpu_priv_t *    priv = (cpu_priv_t *) family->priv;
+    unsigned        nb_cpus;
+    unsigned        i;
+    const unsigned  nb_desc_per_cpu = 7;
+    sensor_desc_t * desc;
+
+    priv->cpu_data.nb_cpus = nb_cpus = sysdep_cpu_nb(family);
+
+    if ((priv->cpu_data.ticks = calloc(nb_cpus + 1, sizeof(cpu_tick_t))) == NULL) {
         LOG_ERROR(family->log, "%s/%s(): cannot allocate cpu_ticks", __FILE__, __func__);
         return SENSOR_ERROR;
     }
-    // Not Pretty but allows to have an initiliazed array with dynamic values.
-    sensor_desc_t sensors_desc[] = {
-        { &priv->cpu_data.ticks[0].activity_percent, "cpus usage %", SENSOR_VALUE_UINT, family },
-        { NULL, NULL, 0, NULL },
-    };
+
     if ((priv->sensors_desc
-            = calloc(sizeof(sensors_desc) / sizeof(*sensors_desc), sizeof(*sensors_desc))) == NULL) {
+            = calloc(nb_desc_per_cpu * (nb_cpus + 1) + 1,
+                     sizeof(*priv->sensors_desc))) == NULL) {
         free(priv->cpu_data.ticks);
         return SENSOR_ERROR;
     }
-    memcpy(priv->sensors_desc, sensors_desc, sizeof(sensors_desc));
+
+    desc = priv->sensors_desc;
+    for (i = 0; i <= priv->cpu_data.nb_cpus; i++) {
+        char cpu_name[10];
+
+        if (i == 0)
+            str0cpy(cpu_name, "s", sizeof(cpu_name) / sizeof(*cpu_name));
+        else
+            snprintf(cpu_name, sizeof(cpu_name) / sizeof(*cpu_name), "%d", i);
+
+        if (init_one_desc(
+                    family, desc,
+                    SENSOR_VALUE_ULONG,
+                    &priv->cpu_data.ticks[i].sys,
+                    "cpu%s sys usage", cpu_name) == SENSOR_SUCCESS)
+            ++desc;
+
+        if (init_one_desc(
+                    family, desc,
+                    SENSOR_VALUE_ULONG,
+                    &priv->cpu_data.ticks[i].user,
+                    "cpu%s user usage", cpu_name) == SENSOR_SUCCESS)
+            ++desc;
+
+        if (init_one_desc(
+                    family, desc,
+                    SENSOR_VALUE_ULONG,
+                    &priv->cpu_data.ticks[i].activity,
+                    "cpu%s activity usage", cpu_name) == SENSOR_SUCCESS)
+            ++desc;
+
+        if (init_one_desc(
+                    family, desc,
+                    SENSOR_VALUE_ULONG,
+                    &priv->cpu_data.ticks[i].total,
+                    "cpu%s total usage", cpu_name) == SENSOR_SUCCESS)
+            ++desc;
+
+        if (init_one_desc(
+                    family, desc,
+                    SENSOR_VALUE_UCHAR,
+                    &priv->cpu_data.ticks[i].sys_percent,
+                    "cpu%s sys usage %%", cpu_name) == SENSOR_SUCCESS)
+            ++desc;
+
+        if (init_one_desc(
+                    family, desc,
+                    SENSOR_VALUE_UCHAR,
+                    &priv->cpu_data.ticks[i].user_percent,
+                    "cpu%s user usage %%", cpu_name) == SENSOR_SUCCESS)
+            ++desc;
+
+        if (init_one_desc(
+                    family, desc,
+                    SENSOR_VALUE_UCHAR,
+                    &priv->cpu_data.ticks[i].activity_percent,
+                    "cpu%s total usage %%", cpu_name) == SENSOR_SUCCESS)
+            ++desc;
+    }
+    desc->label = NULL;
+    desc->key = NULL;
+    desc->family = NULL;
+
     return SENSOR_SUCCESS;
 }
 
 /** family-specific init */
 static sensor_status_t family_init(sensor_family_t *family) {
     // Sanity checks done before in sensor_init()
+    if (sysdep_cpu_support(family, NULL) != SENSOR_SUCCESS) {
+        return SENSOR_NOT_SUPPORTED;
+    }
     if (family->priv != NULL) {
         LOG_ERROR(family->log, "error: %s data already initialized", family->info->name);
         family_free(family);
         return SENSOR_ERROR;
     }
-    if ((family->priv = calloc(1, sizeof(priv_t))) == NULL) {
+    if ((family->priv = calloc(1, sizeof(cpu_priv_t))) == NULL) {
         LOG_ERROR(family->log, "cannot allocate private %s data", family->info->name);
         return SENSOR_ERROR;
     }
@@ -92,8 +205,8 @@ static sensor_status_t family_init(sensor_family_t *family) {
 
 /** family-specific list */
 static slist_t * family_list(sensor_family_t *family) {
-    priv_t *    priv = (priv_t *) family->priv;
-    slist_t *   list = NULL;
+    cpu_priv_t *    priv = (cpu_priv_t *) family->priv;
+    slist_t *       list = NULL;
 
     for (unsigned int i_desc = 0; priv->sensors_desc[i_desc].label; i_desc++) {
         list = slist_prepend(list, &priv->sensors_desc[i_desc]);
@@ -104,7 +217,8 @@ static slist_t * family_list(sensor_family_t *family) {
 /** family-specific update */
 static sensor_status_t family_update(sensor_sample_t *sensor, const struct timeval * now) {
     // Sanity checks are done in sensor_update_get()
-    priv_t * fpriv = (priv_t *) sensor->desc->family->priv;
+    cpu_priv_t * fpriv = (cpu_priv_t *) sensor->desc->family->priv;
+
     if (fpriv == NULL) {
        return SENSOR_ERROR;
     }
@@ -116,10 +230,11 @@ static sensor_status_t family_update(sensor_sample_t *sensor, const struct timev
     };
     timersub(now, &fpriv->last_update_time, &elapsed);
     if (timercmp(&elapsed, &limit, >=)) {
-        cpu_get(sensor->desc->family, fpriv->last_update_time.tv_sec == 0 ? NULL : &elapsed);
+        sysdep_cpu_get(sensor->desc->family, fpriv->last_update_time.tv_sec == 0 ? NULL : &elapsed);
         fpriv->last_update_time = *now;
     }
-    // Always update the sensor Value;
+
+    /* Always update the sensor Value; */
     return sensor_value_fromraw(sensor->desc->key, &sensor->value);
 }
 

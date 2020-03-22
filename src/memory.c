@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Vincent Sallaberry
+ * Copyright (C) 2017-2020 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -69,6 +69,10 @@ static sensor_status_t init_private_data(sensor_family_t *family) {
 /** family-specific init */
 static sensor_status_t family_init(sensor_family_t *family) {
     // Sanity checks done before in sensor_init()
+    if (sysdep_memory_support(family, NULL) != SENSOR_SUCCESS) {
+        LOG_INFO(family->log, "%s sensors not supported on this system", family->info->name);
+        return SENSOR_NOT_SUPPORTED;
+    }
     if (family->priv != NULL) {
         LOG_ERROR(family->log, "error: %s data already initialized", family->info->name);
         family_free(family);
@@ -114,7 +118,7 @@ static sensor_status_t family_update(sensor_sample_t *sensor,
     };
     timersub(now, &fpriv->last_update_time, &elapsed);
     if (timercmp(&elapsed, &limit, >=)) {
-        memory_get(sensor->desc->family, &fpriv->memory_data);
+        sysdep_memory_get(sensor->desc->family, &fpriv->memory_data);
         fpriv->last_update_time = *now;
     }
     // Always update the sensor Value;
@@ -134,7 +138,7 @@ const sensor_family_info_t g_sensor_family_memory = {
 int memory_print () {
 	memory_data_t data;
     sensor_family_t family = { .log = NULL };
-    if (memory_get(&family, &data) != SENSOR_SUCCESS)
+    if (sysdep_memory_get(&family, &data) != SENSOR_SUCCESS)
         return 0;
     return fprintf(stdout, "memory_active %f\nmemory_wired %f\nmemory_inactive %f\nmemory_free "
                            "%f\nmemory_total %f\nmemory_utilization_perc %u\n",

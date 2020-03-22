@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Vincent Sallaberry
+ * Copyright (C) 2018-2020 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,11 +21,24 @@
  */
 #include "cpu_private.h"
 
-sensor_status_t cpu_get(sensor_family_t * family, struct timeval *elapsed) {
-    priv_t * priv = (priv_t *) family->priv;
-    (void)priv;
-    (void)elapsed;
-    LOG_ERROR(family->log, "%s/%s(): NOT IMPLEMENTED ON THIS SYSTEM.", __FILE__, __func__);
+sensor_status_t sysdep_cpu_support(sensor_family_t * family, const char * label) {
+    (void) label;
+    (void) family;
+    return SENSOR_ERROR;
+}
+
+unsigned int    sysdep_cpu_nb(sensor_family_t * family) {
+    (void) family;
+    return 0;
+}
+
+void            sysdep_cpu_destroy(sensor_family_t * family) {
+    (void) family;
+}
+
+sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed) {
+    (void) family;
+    (void) elapsed;
     return SENSOR_ERROR;
 }
 

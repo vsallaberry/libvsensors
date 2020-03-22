@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Vincent Sallaberry
+ * Copyright (C) 2017-2020 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -61,6 +61,9 @@ static sensor_status_t init_private_data(sensor_family_t *family) {
 /** family-specific init */
 static sensor_status_t family_init(sensor_family_t *family) {
     // Sanity checks done before in sensor_init()
+    if (sysdep_network_support(family, NULL) != SENSOR_SUCCESS) {
+        return SENSOR_NOT_SUPPORTED;
+    }
     if (family->priv != NULL) {
         LOG_ERROR(family->log, "error: %s data already initialized", family->info->name);
         family_free(family);
@@ -105,7 +108,7 @@ static sensor_status_t family_update(sensor_sample_t *sensor, const struct timev
     };
     timersub(now, &fpriv->last_update_time, &elapsed);
     if (timercmp(&elapsed, &limit, >=)) {
-        network_get(sensor->desc->family,
+        sysdep_network_get(sensor->desc->family,
                     &fpriv->network_data, fpriv->last_update_time.tv_sec == 0 ? NULL : &elapsed);
         fpriv->last_update_time = *now;
     }

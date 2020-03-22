@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Vincent Sallaberry
+ * Copyright (C) 2017-2020 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -46,7 +46,8 @@ typedef struct {
     struct timeval      last_update_time;
 } priv_t;
 
-sensor_status_t memory_get (sensor_family_t * family, memory_data_t *data);
+sensor_status_t sysdep_memory_support(sensor_family_t * family, const char * label);
+sensor_status_t sysdep_memory_get(sensor_family_t * family, memory_data_t *data);
 
 #ifdef __cplusplus
 }

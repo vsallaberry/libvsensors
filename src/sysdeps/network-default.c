@@ -21,11 +21,19 @@
  */
 #include "network_private.h"
 
-sensor_status_t network_get(sensor_family_t * family,
-                            network_data_t *data, struct timeval *elapsed) {
+sensor_status_t     sysdep_network_support(sensor_family_t * family, const char * label) {
+    (void) family;
+    (void) label;
+    return SENSOR_ERROR;
+}
+
+sensor_status_t sysdep_network_get(
+                    sensor_family_t *   family,
+                    network_data_t *    data,
+                    struct timeval *    elapsed) {
+    (void)family;
     (void)data;
     (void)elapsed;
-    LOG_ERROR(family->log, "%s/%s(): NOT IMPLEMENTED ON THIS SYSTEM.", __FILE__, __func__);
     return SENSOR_ERROR;
 }
 
