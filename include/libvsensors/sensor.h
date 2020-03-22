@@ -84,6 +84,8 @@ typedef struct sensor_sample_s sensor_sample_t;
  */
 typedef enum {
    SENSOR_SUCCESS           = 0,
+   SENSOR_UNCHANGED         = SENSOR_SUCCESS,
+   SENSOR_UPDATED           = 1,
    SENSOR_ERROR             = -1,
    SENSOR_NOT_SUPPORTED     = -2
 } sensor_status_t;
@@ -316,6 +318,18 @@ sensor_status_t sensor_watch_save(slist_t * watch_list, const char * path);
 slist_t *       sensor_watch_load(const char * path);
 
 /**
+ * Update a given sensor, according to its update interval.
+ * @param sensor the sensor to update
+ * @param now a struct timeval pointer to indicate current time, or NULL to let
+ *            libvsensors evaluate time. now is a correct relative time, it can
+ *            be the real date, but it is not required.
+ * @return SENSOR_ERROR or SENSOR_NOT_SUPPORTED on error
+ *         SENSOR_UPDATED   if updated
+ *         SENSOR_UNCHANGED if not updated
+ */
+sensor_status_t sensor_update_check(sensor_sample_t * sensor, const struct timeval * now);
+
+/**
  * Get the list of updated sensors, among watch list, according to update interval.
  * User must clean the updated_list with sensor_update_free() once
  * it has been used, independently of watch_list.
@@ -324,6 +338,8 @@ slist_t *       sensor_watch_load(const char * path);
  *            libvsensors evaluate time. now is a correct relative time, it can
  *            be the real date, but it is not required.
  * @return slist_t *<sensor_sample_t*>
+ * @note: Prefer sensor_update_check() to avoid mallocs/frees .
+ *        Calling this function will require <nb_updates> malloc and free.
  */
 slist_t *       sensor_update_get(sensor_ctx_t * sctx, const struct timeval * now);
 

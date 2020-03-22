@@ -208,6 +208,46 @@ slist_t * sensor_watch_load(const char * path) {
     return NULL;
 }
 
+static inline sensor_status_t sensor_update_check_internal(
+                                sensor_sample_t *           sensor,
+                                const struct timeval *      now) {
+    if (sensor->desc && sensor->desc->family && sensor->desc->family->info
+    && sensor->desc->family->info->update) {
+        struct timeval nexttick = {
+            .tv_sec     = sensor->watch.update_interval_ms / 1000,
+            .tv_usec    = (sensor->watch.update_interval_ms % 1000) * 1000,
+        };
+        timeradd(&nexttick, &sensor->last_update_time, &nexttick);
+        if (timercmp(now, &nexttick, >=)) {
+            sensor_value_t prev_value = sensor->value; // FIXME perfs ? + FIXME initial value
+            if (sensor->desc->family->info->update(sensor, now) != SENSOR_SUCCESS) {
+                return SENSOR_ERROR;
+            }
+            sensor->last_update_time = *now;
+            if (sensor_value_equal(&prev_value, &sensor->value) == 0) {
+                return SENSOR_UPDATED;
+            }
+        }
+        return SENSOR_UNCHANGED;
+    }
+    return SENSOR_NOT_SUPPORTED;
+}
+
+sensor_status_t sensor_update_check(sensor_sample_t * sensor, const struct timeval * now) {
+    struct timeval snow;
+
+    if (sensor == NULL) {
+        return SENSOR_NOT_SUPPORTED;
+    }
+    if (now == NULL) {
+        if (gettimeofday(&snow, NULL) != 0) {
+            return SENSOR_ERROR;
+        }
+        now = &snow;
+    }
+    return sensor_update_check_internal(sensor, now);
+}
+
 slist_t * sensor_update_get(sensor_ctx_t *sctx, const struct timeval * now) {
     slist_t *updates = NULL;
     struct timeval snow;
@@ -227,23 +267,12 @@ slist_t * sensor_update_get(sensor_ctx_t *sctx, const struct timeval * now) {
         now = &snow;
     }
     SLIST_FOREACH_DATA(sctx->watchs, sensor, sensor_sample_t *) {
-        if (sensor && sensor->desc && sensor->desc->family && sensor->desc->family->info
-        && sensor->desc->family->info->update) {
-            struct timeval nexttick = {
-                .tv_sec     = sensor->watch.update_interval_ms / 1000,
-                .tv_usec    = (sensor->watch.update_interval_ms % 1000) * 1000,
-            };
-            timeradd(&nexttick, &sensor->last_update_time, &nexttick);
-            if (timercmp(now, &nexttick, >=)) {
-                sensor_value_t prev_value = sensor->value; // FIXME perfs ? + FIXME initial value
-                if (sensor->desc->family->info->update(sensor, now) == SENSOR_SUCCESS) {
-                    sensor->last_update_time = *now;
-                    if (sensor_value_equal(&prev_value, &sensor->value) == 0) {
-                        updates = slist_prepend(updates, sensor);
-                    }
-                } else {
-                    LOG_ERROR(sctx->log, "sensor '%s' update error", sensor->desc->label);
-                }
+        if (sensor) {
+            sensor_status_t ret = sensor_update_check_internal(sensor, now);
+            if (ret == SENSOR_UPDATED) {
+                updates = slist_prepend(updates, sensor);
+            } else if (ret == SENSOR_ERROR) {
+                LOG_ERROR(sctx->log, "sensor '%s' update error", sensor->desc->label);
             }
         }
     }
