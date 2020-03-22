@@ -1,6 +1,10 @@
 /*
- * Copyright (C) 2017-2019 Vincent Sallaberry
+ * Copyright (C) 2017-2020 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
+ *
+ * Credits to Bill Wilson, Ben Hines and other gkrellm developers
+ * (gkrellm, GPLv3, https://git.srcbox.net/gkrellm) for some hints
+ * about the way to retrieve some os-specific system informations.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -149,11 +153,17 @@ sensor_status_t cpu_get(sensor_family_t * family, struct timeval *elapsed) {
     data->ticks[0].activity = global_activity;
     data->ticks[0].user = global_user;
     data->ticks[0].sys = global_sys;
-    printf("CPU %u%% (usr:%u sys:%u)\n",
-               data->ticks[0].activity_percent,
-               data->ticks[0].user_percent,
-               data->ticks[0].sys_percent);
+
+    LOG_DEBUG(family->log,
+        "CPU %u%% (usr:%u sys:%u)\n",
+        data->ticks[0].activity_percent,
+        data->ticks[0].user_percent,
+        data->ticks[0].sys_percent);
+
+#ifdef _DEBUG // TODO to be removed
     cpu_get2(family, NULL, NULL);
+#endif
+
     return SENSOR_SUCCESS;
 }
 

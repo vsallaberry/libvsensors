@@ -7,6 +7,7 @@
 * [Compilation](#compilation)
 * [Integration](#integration)
 * [Contact](#contact)
+* [Credits](#credits)
 * [License](#license)
 
 ## Overview
@@ -114,8 +115,13 @@ WORK-IN-PROGRESS...
 [vsallaberry@gmail.com]  
 <https://github.com/vsallaberry/libvsensors>
 
+## Credits
+* Credits to Bill Wilson, Ben Hines and other gkrellm developers 
+(gkrellm, GPLv3, https://git.srcbox.net/gkrellm) for some hints
+about the way to retrieve some os-specific system informations.
+ 
 ## License
 GPLv3 or later. See LICENSE file.
 
-CopyRight: Copyright (C) 2017-2019 Vincent Sallaberry
+CopyRight: Copyright (C) 2017-2020 Vincent Sallaberry
 
