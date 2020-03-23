@@ -41,9 +41,52 @@
 
 #include "network_private.h"
 
+typedef struct {
+    char *      buf;
+    size_t      buf_size;
+    size_t      sysctl_len;
+} network_sysdep_t;
+
 sensor_status_t sysdep_network_support(sensor_family_t * family, const char * label) {
     (void) label;
     (void) family;
+    return SENSOR_SUCCESS;
+}
+
+sensor_status_t sysdep_network_init(sensor_family_t * family) {
+    if (family->priv == NULL) {
+        return SENSOR_ERROR;
+    }
+
+    network_priv_t * priv = (network_priv_t *) family->priv;
+
+    if (priv->sysdep == NULL) {
+        if ((priv->sysdep = calloc(1, sizeof(network_sysdep_t))) == NULL) {
+            return SENSOR_ERROR;
+        }
+        network_sysdep_t * sysdep = (network_sysdep_t *) priv->sysdep;
+
+        sysdep->buf = NULL;
+        sysdep->buf_size = 0;
+        sysdep->sysctl_len = 0;
+    }
+    return SENSOR_SUCCESS;
+}
+
+sensor_status_t sysdep_network_destroy(sensor_family_t * family) {
+    if (family->priv != NULL) {
+        network_priv_t * priv = (network_priv_t *) family->priv;
+
+        if (priv->sysdep != NULL) {
+            network_sysdep_t * sysdep = (network_sysdep_t *) priv->sysdep;
+
+            if (sysdep->buf != NULL) {
+                free(sysdep->buf);
+            }
+            priv->sysdep = NULL;
+            free(sysdep);
+        }
+    }
     return SENSOR_SUCCESS;
 }
 
@@ -51,23 +94,33 @@ sensor_status_t sysdep_network_get(
                     sensor_family_t *   family,
                     network_data_t *    data,
                     struct timeval *    elapsed) {
-    int     mib[] = { CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0 };
+
+    int                 mib[] = { CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0 };
+    network_priv_t *    priv = (network_priv_t *) family->priv;
+    network_sysdep_t *  sysdep = priv ? (network_sysdep_t *) priv->sysdep : NULL;
     size_t  len;
-    char *  buf;
+
+    if (sysdep == NULL) {
+        return SENSOR_ERROR;
+    }
 
     if (sysctl(mib, sizeof(mib) / sizeof(*mib), NULL, &len, NULL, 0) < 0) {
 	    LOG_ERROR(family->log, "%s(): sysctl(null): %s", __func__, strerror(errno));
 	    return SENSOR_ERROR;
     }
 
-    buf = (char*) malloc(len);
-    if (buf == NULL || sysctl(mib, sizeof(mib) / sizeof(*mib), buf, &len, NULL, 0) < 0) {
+    if (len > sysdep->buf_size) {
+        if ((sysdep->buf = realloc(sysdep->buf, len)) == NULL) {
+            return SENSOR_ERROR;
+        }
+        sysdep->buf_size = len;
+    }
+    if (sysctl(mib, sizeof(mib) / sizeof(*mib), sysdep->buf, &len, NULL, 0) < 0) {
         LOG_ERROR(family->log, "%s(): sysctl(buf): %s", __func__, strerror(errno));
-	    if (buf)
-            free(buf);
-    	return SENSOR_ERROR;
+        return SENSOR_ERROR;
     }
 
+    char * buf = sysdep->buf;
     char *lim = buf + len;
     char *next = NULL;
     u_int64_t total_ibytes = 0;
@@ -161,7 +214,6 @@ sensor_status_t sysdep_network_get(
     data->ibytes = total_ibytes;
     data->obytes = total_obytes;
 
-    free(buf);
     return SENSOR_SUCCESS;
 }
 

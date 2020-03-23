@@ -50,31 +50,7 @@
 
 #include "cpu_private.h"
 
-static unsigned long s_clk_tck = 0;
-
-static inline unsigned long clk_tck() {
-    if (s_clk_tck > 0)
-        return s_clk_tck;
-
-    long clk_tck = sysconf(_SC_CLK_TCK);
-    if (clk_tck <= 0) {
-        #ifdef CLK_TCK
-        s_clk_tck = CLK_TCK;
-        #elif defined(CLOCKS_PER_SEC)
-        s_clk_tck = CLOCKS_PER_SEC;
-        #else
-        #warning "NO CLK_TCK or CLOCKS_PER_SEC"
-        s_clk_tck = 100;
-        #endif
-    } else
-        s_clk_tck = clk_tck;
-    return s_clk_tck;
-}
-#undef CLK_TCK
-#define CLK_TCK (clk_tck())
-//#define CLK_TCK (1)
-
-/* ===================================================================== */
+/* ************************************************************************ */
 
 typedef struct {
 #if SENSOR_CPU_KVM
@@ -83,6 +59,7 @@ typedef struct {
     long            *cp_times;
 } sysdep_cpu_data_t;
 
+/* ************************************************************************ */
 sensor_status_t sysdep_cpu_support(sensor_family_t * family, const char * label) {
     (void) label;
     (void) family;
@@ -97,6 +74,7 @@ sensor_status_t sysdep_cpu_support(sensor_family_t * family, const char * label)
     return SENSOR_SUCCESS;
 }
 
+/* ************************************************************************ */
 unsigned int    sysdep_cpu_nb(sensor_family_t * family) {
     cpu_priv_t *        priv = (cpu_priv_t *) family->priv;
     sysdep_cpu_data_t * sysdep;
@@ -133,6 +111,7 @@ unsigned int    sysdep_cpu_nb(sensor_family_t * family) {
     return n_cpus;
 }
 
+/* ************************************************************************ */
 unsigned int    sysdep_cpu_sysctl(sensor_family_t * family, long * cp_time, int n) {
 
     //cpu_priv_t *        priv = (cpu_priv_t *) family->priv;
@@ -163,10 +142,11 @@ unsigned int    sysdep_cpu_sysctl(sensor_family_t * family, long * cp_time, int 
 	return SENSOR_SUCCESS;
 }
 
+/* ************************************************************************ */
 void            sysdep_cpu_destroy(sensor_family_t * family) {
     cpu_priv_t *        priv = (cpu_priv_t *) family->priv;
 
-    if (priv->sysdep != NULL) {
+    if (priv != NULL && priv->sysdep != NULL) {
         sysdep_cpu_data_t * sysdep = (sysdep_cpu_data_t *) priv->sysdep;
 #if SENSOR_CPU_KVM
         if (sysdep->kvm != NULL)
@@ -176,11 +156,12 @@ void            sysdep_cpu_destroy(sensor_family_t * family) {
         if (sysdep->cp_times != NULL)
             free(sysdep->cp_times);
         sysdep->cp_times = NULL;
-        free(priv->sysdep);
         priv->sysdep = NULL;
+        free(sysdep);
     }
 }
 
+/* ************************************************************************ */
 sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed) {
     cpu_priv_t *                        priv = (cpu_priv_t *) family->priv;
     cpu_data_t *                        data = &priv->cpu_data;
@@ -227,22 +208,7 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
         unsigned long total = activity
                               + (sysdep->cp_times[i*CPUSTATES+CP_IDLE]);
 
-        if (elapsed != NULL) {
-            data->ticks[i].activity_percent = (100 * (activity - data->ticks[i].activity) + 1) / CLK_TCK;
-            data->ticks[i].user_percent = (100 * (user - data->ticks[i].user) + 1) / CLK_TCK;
-            data->ticks[i].sys_percent = (100 * (sys - data->ticks[i].sys) + 1) / CLK_TCK;
-
-            data->ticks[i].activity_percent
-                = (1000 * data->ticks[i].activity_percent) / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000);
-            data->ticks[i].user_percent
-                = (1000 * data->ticks[i].user_percent) / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000);
-            data->ticks[i].sys_percent
-                = (1000 * data->ticks[i].sys_percent) / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000);
-        }
-        data->ticks[i].activity = activity;
-        data->ticks[i].user = user;
-        data->ticks[i].sys = sys;
-        data->ticks[i].total = total;
+        cpu_store_ticks(family, i, sys, user, activity, total, elapsed);
 
         LOG_DEBUG(family->log,
             "CPU%u %u%% (usr:%u%% sys:%u%%) "
@@ -254,7 +220,7 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
             sysdep->cp_times[i*CPUSTATES+CP_USER],
             sysdep->cp_times[i*CPUSTATES+CP_NICE],
             sysdep->cp_times[i*CPUSTATES+CP_SYS],
-            sysdep->cp_times[i*CPUSTATES+CP_IDLE], CLK_TCK);
+            sysdep->cp_times[i*CPUSTATES+CP_IDLE], cpu_clktck());
     }
 
     return SENSOR_SUCCESS;

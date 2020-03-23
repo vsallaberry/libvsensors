@@ -30,10 +30,10 @@ extern "C" {
 
 /** Iternal struct where all network info is kept */
 typedef struct {
-    unsigned long ibytes;
-    unsigned long obytes;
-    unsigned long ibytespersec;
-    unsigned long obytespersec;
+    TYPE_SENSOR_VALUE_ULONG     ibytes;
+    TYPE_SENSOR_VALUE_ULONG     obytes;
+    TYPE_SENSOR_VALUE_ULONG     ibytespersec;
+    TYPE_SENSOR_VALUE_ULONG     obytespersec;
 } network_data_t;
 
 /** private/specific network family structure */
@@ -42,16 +42,18 @@ typedef struct {
     network_data_t      network_data;
     network_data_t *    iface_data;
     struct timeval      last_update_time;
-} priv_t;
+    void *              sysdep;
+} network_priv_t;
 
 sensor_status_t sysdep_network_support(sensor_family_t * family, const char * label);
 sensor_status_t sysdep_network_get (sensor_family_t * family,
                              network_data_t *data, struct timeval *elapsed_time);
+sensor_status_t sysdep_network_init(sensor_family_t * family);
+sensor_status_t sysdep_network_destroy(sensor_family_t * family);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif // ifdef SENSOR_NETWORK_PRIVATE_H
-
 

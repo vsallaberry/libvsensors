@@ -29,19 +29,21 @@
 
 /** family-specific free */
 static sensor_status_t family_free(sensor_family_t *family) {
-    if (family->priv) {
-        priv_t *priv = (priv_t *) family->priv;
-        if (priv->sensors_desc)
+    if (family->priv != NULL) {
+        network_priv_t * priv = (network_priv_t *) family->priv;
+
+        sysdep_network_destroy(family);
+        if (priv->sensors_desc != NULL)
             free (priv->sensors_desc);
-        free(family->priv);
         family->priv = NULL;
+        free(priv);
     }
     return SENSOR_SUCCESS;
 }
 
 /** family private data creation, including the sensor_desc_t data */
 static sensor_status_t init_private_data(sensor_family_t *family) {
-    priv_t * priv = (priv_t *) family->priv;;
+    network_priv_t * priv = (network_priv_t *) family->priv;;
     // Not Pretty but allows to have an initiliazed array with dynamic values.
     sensor_desc_t sensors_desc[] = {
         { &priv->network_data.ibytes,       "network out bytes",       SENSOR_VALUE_ULONG,  family },
@@ -55,28 +57,33 @@ static sensor_status_t init_private_data(sensor_family_t *family) {
         return SENSOR_ERROR;
     }
     memcpy(priv->sensors_desc, sensors_desc, sizeof(sensors_desc));
+
+    if (sysdep_network_init(family) != SENSOR_SUCCESS) {
+        return SENSOR_ERROR;
+    }
+
     return SENSOR_SUCCESS;
 }
 
 /** family-specific init */
 static sensor_status_t family_init(sensor_family_t *family) {
     // Sanity checks done before in sensor_init()
-    if (sysdep_network_support(family, NULL) != SENSOR_SUCCESS) {
-        return SENSOR_NOT_SUPPORTED;
-    }
     if (family->priv != NULL) {
         LOG_ERROR(family->log, "error: %s data already initialized", family->info->name);
-        family_free(family);
         return SENSOR_ERROR;
     }
-    if ((family->priv = calloc(1, sizeof(priv_t))) == NULL) {
+    if (sysdep_network_support(family, NULL) != SENSOR_SUCCESS) {
+        family_free(family);
+        return SENSOR_NOT_SUPPORTED;
+    }
+    if ((family->priv = calloc(1, sizeof(network_priv_t))) == NULL) {
         LOG_ERROR(family->log, "cannot allocate private %s data", family->info->name);
+        family_free(family);
         return SENSOR_ERROR;
     }
     if (init_private_data(family) != SENSOR_SUCCESS) {
         LOG_ERROR(family->log, "cannot initialize private %s data", family->info->name);
-        free(family->priv);
-        family->priv = NULL;
+        family_free(family);
         return SENSOR_ERROR;
     }
     return SENSOR_SUCCESS;
@@ -84,8 +91,8 @@ static sensor_status_t family_init(sensor_family_t *family) {
 
 /** family-specific list */
 static slist_t * family_list(sensor_family_t *family) {
-    priv_t *    priv = (priv_t *) family->priv;
-    slist_t *   list = NULL;
+    network_priv_t *    priv = (network_priv_t *) family->priv;
+    slist_t *           list = NULL;
 
     for (unsigned int i_desc = 0; priv->sensors_desc[i_desc].label; i_desc++) {
         list = slist_prepend(list, &priv->sensors_desc[i_desc]);
@@ -96,7 +103,7 @@ static slist_t * family_list(sensor_family_t *family) {
 /** family-specific update */
 static sensor_status_t family_update(sensor_sample_t *sensor, const struct timeval * now) {
     // Sanity checks are done in sensor_update_get()
-    priv_t * fpriv = (priv_t *) sensor->desc->family->priv;
+    network_priv_t * fpriv = (network_priv_t *) sensor->desc->family->priv;
     if (fpriv == NULL) {
        return SENSOR_ERROR;
     }

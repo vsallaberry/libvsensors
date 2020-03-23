@@ -34,31 +34,11 @@
 
 #include "cpu_private.h"
 
+/* ************************************************************************ */
+
 #ifndef CPU_PROC_FILE
 #define CPU_PROC_FILE   "/proc/stat"
 #endif
-
-static clock_t clk_tck() {
-    static clock_t s_clk_tck = 0;
-    if (s_clk_tck > 0)
-        return s_clk_tck;
-
-    clock_t clk_tck = sysconf(_SC_CLK_TCK);
-    if (clk_tck == -1) {
-        #ifdef CLK_TCK
-        s_clk_tck = CLK_TCK;
-        #elif defined(CLOCKS_PER_SEC)
-        s_clk_tck = CLOCKS_PER_SEC;
-        #else
-        #warning "NO CLK_TCK or CLOCKS_PER_SEC"
-        s_clk_tck = 100;
-        #endif
-    } else
-        s_clk_tck = clk_tck;
-    return s_clk_tck;
-}
-#undef CLK_TCK
-#define CLK_TCK (clk_tck())
 
 typedef struct {
     FILE *  stat;
@@ -66,12 +46,15 @@ typedef struct {
     size_t  stat_linesz;
 } cpu_linux_t;
 
+
+/* ************************************************************************ */
 sensor_status_t sysdep_cpu_support(sensor_family_t * family, const char * label) {
     (void) label;
     (void) family;
     return SENSOR_SUCCESS;
 }
 
+/* ************************************************************************ */
 unsigned int    sysdep_cpu_nb(sensor_family_t * family) {
     cpu_priv_t *    priv = (family->priv);
     cpu_linux_t *   sysdep;
@@ -103,7 +86,7 @@ unsigned int    sysdep_cpu_nb(sensor_family_t * family) {
     fseek(sysdep->stat, 0, SEEK_SET);
     n_cpus = 0;
     while ((linesz = getline(&line, &lineallocsz, sysdep->stat)) >= 0) {
-        LOG_VERBOSE(family->log, "%s LINE (sz:%zu) %s", CPU_PROC_FILE, linesz, line);
+        LOG_DEBUG(family->log, "%s LINE (sz:%zu) %s", CPU_PROC_FILE, linesz, line);
         if (!strncmp(line, "cpu", 3) && (line[3] != ' ' && line[3] != '\t'))
             ++n_cpus;
     }
@@ -113,24 +96,31 @@ unsigned int    sysdep_cpu_nb(sensor_family_t * family) {
     return n_cpus;
 }
 
+/* ************************************************************************ */
 void            sysdep_cpu_destroy(sensor_family_t * family) {
-    cpu_linux_t * sysdep = ((cpu_priv_t *)family->priv)->sysdep;
-    if (sysdep != NULL && sysdep->stat != NULL) {
-        fclose(sysdep->stat);
-        sysdep->stat = NULL;
+    cpu_priv_t *        priv = (cpu_priv_t *) family->priv;
+
+    if (priv != NULL && priv->sysdep != NULL) {
+        cpu_linux_t * sysdep = (cpu_linux_t *) priv->sysdep;
+
+        if (sysdep->stat != NULL) {
+            fclose(sysdep->stat);
+            sysdep->stat = NULL;
+        }
         if (sysdep->stat_line != NULL)
             free(sysdep->stat_line);
         sysdep->stat_line = NULL;
+        priv->sysdep = NULL;
         free(sysdep);
     }
 }
 
+/* ************************************************************************ */
 sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed) {
     cpu_priv_t *    priv = (family->priv);
     cpu_linux_t *   sysdep = priv->sysdep;
     ssize_t         linesz;
     unsigned long   n;
-    (void)elapsed;
 
     if (priv->sysdep == NULL || sysdep->stat == NULL) {
         LOG_ERROR(family->log, "error, cannot malloc cpu_sysdep data");
@@ -149,8 +139,8 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
          * ticks for cpu are jiffies * smp_num_cpus
          * ticks for cpu[i] are jiffies (1/CLK_TCK)
          */
-        LOG_VERBOSE(family->log, "%s LINE (sz:%zu) %s", CPU_PROC_FILE,
-                linesz, line);
+        LOG_DEBUG(family->log, "%s LINE (sz:%zu) %s", CPU_PROC_FILE,
+                  linesz, line);
         if (!strncmp(line, "cpu", 3)) {
             if (line[3] == ' ' || line[3] == '\t') {
                 n = 0;
@@ -190,28 +180,15 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
                             total /= data->nb_cpus;
                         }
 
-                        if (elapsed != NULL) {
-                            data->ticks[n].activity_percent
-                                = (100 * (activity - data->ticks[n].activity) + 1) / CLK_TCK;
-                            data->ticks[n].user_percent
-                                = (100 * (user - data->ticks[n].user) + 1) / CLK_TCK;
-                            data->ticks[n].sys_percent
-                                = (100 * (sys - data->ticks[n].sys) + 1) / CLK_TCK;
+                        cpu_store_ticks(family, n, sys, user, activity, total, elapsed);
 
-                            data->ticks[n].activity_percent
-                                = (1000 * data->ticks[n].activity_percent)
-                                  / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000);
-                            data->ticks[n].user_percent
-                                = (1000 * data->ticks[n].user_percent)
-                                  / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000);
-                            data->ticks[n].sys_percent
-                                = (1000 * data->ticks[n].sys_percent)
-                                  / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000);
-                        }
-                        data->ticks[n].activity = activity;
-                        data->ticks[n].user = user;
-                        data->ticks[n].sys = sys;
-                        data->ticks[n].total = total;
+                        LOG_DEBUG(family->log,
+                            "CPU%u %u%% (usr:%u sys:%u)\n",
+                            n,
+                            data->ticks[n].activity_percent,
+                            data->ticks[n].user_percent,
+                            data->ticks[n].sys_percent);
+
                         break ;
                     }
                     ++tok_idx;

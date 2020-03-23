@@ -34,12 +34,13 @@
 
 /** family-specific free */
 static sensor_status_t family_free(sensor_family_t *family) {
-    if (family->priv) {
+    if (family->priv != NULL) {
         priv_t *priv = (priv_t *) family->priv;
-        if (priv->sensors_desc)
-            free (priv->sensors_desc);
-        free(family->priv);
+
+        if (priv->sensors_desc != NULL)
+            free(priv->sensors_desc);
         family->priv = NULL;
+        free(priv);
     }
     return SENSOR_SUCCESS;
 }
@@ -55,7 +56,7 @@ static sensor_status_t init_private_data(sensor_family_t *family) {
         { &priv->memory_data.free,            "free memory",        SENSOR_VALUE_ULONG, family },
         { &priv->memory_data.used,            "used memory",        SENSOR_VALUE_ULONG, family },
         { &priv->memory_data.total,           "total memory",       SENSOR_VALUE_ULONG, family },
-        { &priv->memory_data.used_percent,    "used memory %",      SENSOR_VALUE_UINT,  family },
+        { &priv->memory_data.used_percent,    "used memory %",      SENSOR_VALUE_UCHAR, family },
         { NULL, NULL, 0, NULL },
     };
     if ((priv->sensors_desc
@@ -69,23 +70,23 @@ static sensor_status_t init_private_data(sensor_family_t *family) {
 /** family-specific init */
 static sensor_status_t family_init(sensor_family_t *family) {
     // Sanity checks done before in sensor_init()
-    if (sysdep_memory_support(family, NULL) != SENSOR_SUCCESS) {
-        LOG_INFO(family->log, "%s sensors not supported on this system", family->info->name);
-        return SENSOR_NOT_SUPPORTED;
-    }
     if (family->priv != NULL) {
         LOG_ERROR(family->log, "error: %s data already initialized", family->info->name);
-        family_free(family);
         return SENSOR_ERROR;
+    }
+    if (sysdep_memory_support(family, NULL) != SENSOR_SUCCESS) {
+        LOG_INFO(family->log, "%s sensors not supported on this system", family->info->name);
+        family_free(family);
+        return SENSOR_NOT_SUPPORTED;
     }
     if ((family->priv = calloc(1, sizeof(priv_t))) == NULL) {
         LOG_ERROR(family->log, "cannot allocate private %s data", family->info->name);
+        family_free(family);
         return SENSOR_ERROR;
     }
     if (init_private_data(family) != SENSOR_SUCCESS) {
         LOG_ERROR(family->log, "cannot initialize private %s data", family->info->name);
-        free(family->priv);
-        family->priv = NULL;
+        family_free(family);
         return SENSOR_ERROR;
     }
     return SENSOR_SUCCESS;
@@ -134,6 +135,7 @@ const sensor_family_info_t g_sensor_family_memory = {
     .list = family_list,
 };
 
+#if 0
 /** to be removed */
 int memory_print () {
 	memory_data_t data;
@@ -146,5 +148,5 @@ int memory_print () {
                    (float)(data.inactive/1048576.0), (float)(data.free/1048576.0),
                    (float)(data.total/1048576.0), data.used_percent);
 }
-
+#endif
 

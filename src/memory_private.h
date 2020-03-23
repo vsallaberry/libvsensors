@@ -30,13 +30,13 @@ extern "C" {
 
 /** Iternal struct where all memory info is kept */
 typedef struct {
-    unsigned long   active;
-    unsigned long   inactive;
-    unsigned long   wired;
-    unsigned long   free;
-    unsigned long   used;
-    unsigned long   total;
-    unsigned int    used_percent;
+    TYPE_SENSOR_VALUE_ULONG     active;
+    TYPE_SENSOR_VALUE_ULONG     inactive;
+    TYPE_SENSOR_VALUE_ULONG     wired;
+    TYPE_SENSOR_VALUE_ULONG     free;
+    TYPE_SENSOR_VALUE_ULONG     used;
+    TYPE_SENSOR_VALUE_ULONG     total;
+    TYPE_SENSOR_VALUE_UCHAR     used_percent;
 } memory_data_t;
 
 /** private/specific family structure */

@@ -40,6 +40,8 @@
 
 #include "cpu_private.h"
 
+/* ************************************************************************ */
+
 typedef struct {
     int             cp_time_mib[6];
     size_t          cp_time_mib_sz;
@@ -48,12 +50,15 @@ typedef struct {
     long *          cp_times;
 } sysdep_cpu_data_t;
 
+
+/* ************************************************************************ */
 sensor_status_t sysdep_cpu_support(sensor_family_t * family, const char * label) {
     (void) label;
     (void) family;
     return SENSOR_SUCCESS;
 }
 
+/* ************************************************************************ */
 unsigned int    sysdep_cpu_nb(sensor_family_t * family) {
     cpu_priv_t *        priv = (cpu_priv_t *) family->priv;
     sysdep_cpu_data_t * sysdep;
@@ -89,25 +94,27 @@ unsigned int    sysdep_cpu_nb(sensor_family_t * family) {
     return n_cpus;
 }
 
+/* ************************************************************************ */
 void            sysdep_cpu_destroy(sensor_family_t * family) {
     cpu_priv_t *        priv = (cpu_priv_t *) family->priv;
 
-    if (priv->sysdep != NULL) {
+    if (priv != NULL && priv->sysdep != NULL) {
         sysdep_cpu_data_t * sysdep = (sysdep_cpu_data_t *) priv->sysdep;
 
         if (sysdep->cp_times != NULL)
             free(sysdep->cp_times);
-        free(priv->sysdep);
         priv->sysdep = NULL;
+        free(sysdep);
     }
 }
 
+/* ************************************************************************ */
 sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed) {
-    cpu_priv_t *                        priv = (cpu_priv_t *) family->priv;
-    cpu_data_t *                        data = &priv->cpu_data;
-    sysdep_cpu_data_t *                 sysdep = (sysdep_cpu_data_t *) priv->sysdep;
-    unsigned int                        i;
-    size_t                              size;
+    cpu_priv_t *                priv = (cpu_priv_t *) family->priv;
+    cpu_data_t *                data = &priv->cpu_data;
+    sysdep_cpu_data_t *         sysdep = (sysdep_cpu_data_t *) priv->sysdep;
+    unsigned int                i;
+    size_t                      size;
 
     if (data->nb_cpus == 0 || sysdep == NULL || sysdep->cp_times == NULL)
         return SENSOR_ERROR;
@@ -117,55 +124,38 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
 
     if (data->nb_cpus > 1 && sysdep->cp_times_mib_sz > 0) {
         size = sizeof(sysdep->cp_times) * CPUSTATES * data->nb_cpus;
-        if (sysctl(sysdep->cp_times_mib, sysdep->cp_times_mib_sz, sysdep->cp_times, &size, NULL, 0) < 0) {
+        if (sysctl(sysdep->cp_times_mib, sysdep->cp_times_mib_sz,
+                   sysdep->cp_times, &size, NULL, 0) < 0) {
             LOG_WARN(family->log, "%s(): sysctl(cp_times): %s", __func__, strerror(errno));
             errno = EAGAIN;
             return SENSOR_ERROR;
         }
     } else if (sysdep->cp_time_mib_sz > 0) {
         size = sizeof(sysdep->cp_times) * CPUSTATES * data->nb_cpus;
-        if (sysctl(sysdep->cp_time_mib, sysdep->cp_time_mib_sz, sysdep->cp_times, &size, NULL, 0) < 0) {
+        if (sysctl(sysdep->cp_time_mib, sysdep->cp_time_mib_sz,
+                   sysdep->cp_times, &size, NULL, 0) < 0) {
             LOG_WARN(family->log, "%s(): sysctl(cp_time): %s", __func__, strerror(errno));
             errno = EAGAIN;
             return SENSOR_ERROR;
         }
         for (i = 1; i < data->nb_cpus; ++i) {
-            memcpy(sysdep->cp_times + (i * CPUSTATES), sysdep->cp_times, CPUSTATES * sizeof(*sysdep->cp_times));
+            memcpy(sysdep->cp_times + (i * CPUSTATES), sysdep->cp_times,
+                   CPUSTATES * sizeof(*sysdep->cp_times));
         }
     } else {
         errno = ENOENT;
         return SENSOR_ERROR;
     }
 
-    unsigned long global_total = 0;
-    unsigned long global_activity = 0;
-    unsigned long global_user = 0;
-    unsigned long global_sys = 0;
     for (i = 1; i <= data->nb_cpus; i++) {
         unsigned long sys = (sysdep->cp_times[(i-1) * CPUSTATES + CP_SYS]);
         unsigned long user = (sysdep->cp_times[(i-1) * CPUSTATES + CP_USER])
                            + (sysdep->cp_times[(i-1) * CPUSTATES + CP_NICE]);
         unsigned long activity = sys + user;
         unsigned long total = activity + (sysdep->cp_times[(i-1) * CPUSTATES + CP_IDLE]);
-        global_total += total;
-        global_activity += activity;
-        global_sys += sys;
-        global_user += user;
-        if (elapsed != NULL) {
-            data->ticks[i].activity_percent = (100 * (activity - data->ticks[i].activity) + 1) / CLK_TCK;
-            data->ticks[i].user_percent = (100 * (user - data->ticks[i].user) + 1) / CLK_TCK;
-            data->ticks[i].sys_percent = (100 * (sys - data->ticks[i].sys) + 1) / CLK_TCK;
 
-            data->ticks[i].activity_percent
-                = (1000 * data->ticks[i].activity_percent) / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000);
-            data->ticks[i].user_percent
-                = (1000 * data->ticks[i].user_percent) / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000);
-            data->ticks[i].sys_percent
-                = (1000 * data->ticks[i].sys_percent) / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000);
-        }
-        data->ticks[i].activity = activity;
-        data->ticks[i].user = user;
-        data->ticks[i].sys = sys;
+        cpu_store_ticks(family, i, sys, user, activity, total, elapsed);
+
         LOG_DEBUG(family->log,
             "CPU%u %u%% (usr:%u%% sys:%u%%) "
             "user:%ld nice:%ld sys:%ld idle:%ld CLK_TCK:%lu",
@@ -176,33 +166,16 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
             sysdep->cp_times[(i-1) * CPUSTATES + CP_USER],
             sysdep->cp_times[(i-1) * CPUSTATES + CP_NICE],
             sysdep->cp_times[(i-1) * CPUSTATES + CP_SYS],
-            sysdep->cp_times[(i-1) * CPUSTATES + CP_IDLE], CLK_TCK);
+            sysdep->cp_times[(i-1) * CPUSTATES + CP_IDLE], cpu_clktck());
     }
 
-    if (elapsed != NULL) {
-        data->ticks[0].activity_percent = (100 * (global_activity - data->ticks[0].activity) + 1) / CLK_TCK;
-        data->ticks[0].user_percent = (100 * (global_user - data->ticks[0].user) + 1) / CLK_TCK;
-        data->ticks[0].sys_percent = (100 * (global_sys - data->ticks[0].sys) + 1) / CLK_TCK;
-
-        data->ticks[0].activity_percent
-            = (1000 * data->ticks[0].activity_percent) / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000)
-              / data->nb_cpus;
-        data->ticks[0].user_percent
-            = (1000 * data->ticks[0].user_percent) / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000)
-              / data->nb_cpus;
-        data->ticks[0].sys_percent
-            = (1000 * data->ticks[0].sys_percent) / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000)
-              / data->nb_cpus;
-    }
-    data->ticks[0].activity = global_activity;
-    data->ticks[0].user = global_user;
-    data->ticks[0].sys = global_sys;
+    cpu_store_ticks(family, 0, CPU_COMPUTE_GLOBAL, 0, 0, 0, elapsed);
 
     LOG_DEBUG(family->log,
-        "CPU %u%% (usr:%u sys:%u)",
-        data->ticks[0].activity_percent,
-        data->ticks[0].user_percent,
-        data->ticks[0].sys_percent);
+                "CPU %u%% (usr:%u sys:%u)\n",
+                 data->ticks[0].activity_percent,
+                 data->ticks[0].user_percent,
+                 data->ticks[0].sys_percent);
 
     return SENSOR_SUCCESS;
 }

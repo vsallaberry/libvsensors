@@ -27,10 +27,8 @@
 
 sensor_status_t sysdep_disk_support(sensor_family_t * family, const char * label);
 
-static sensor_status_t family_init(sensor_family_t *family) {
-    if (sysdep_disk_support(family, NULL) != SENSOR_SUCCESS) {
-        return SENSOR_NOT_SUPPORTED;
-    }
+static sensor_status_t family_free(sensor_family_t *family) {
+    (void)family; //TODO
     if (1) {
        return SENSOR_SUCCESS;
     } else {
@@ -39,12 +37,16 @@ static sensor_status_t family_init(sensor_family_t *family) {
     }
 }
 
-static sensor_status_t family_free(sensor_family_t *family) {
-    (void)family; //TODO
+static sensor_status_t family_init(sensor_family_t *family) {
+    if (sysdep_disk_support(family, NULL) != SENSOR_SUCCESS) {
+        family_free(family);
+        return SENSOR_NOT_SUPPORTED;
+    }
     if (1) {
        return SENSOR_SUCCESS;
     } else {
        LOG_ERROR(family->log, "%s(): failed!", __func__);
+       family_free(family);
        return SENSOR_ERROR;
     }
 }

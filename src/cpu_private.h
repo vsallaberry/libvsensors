@@ -28,10 +28,24 @@
 extern "C" {
 #endif
 
+/* Exposed by sysdeps */
 sensor_status_t sysdep_cpu_support(sensor_family_t * family, const char * label);
 sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed);
 unsigned int    sysdep_cpu_nb(sensor_family_t * family);
 void            sysdep_cpu_destroy(sensor_family_t * family);
+
+/* Exposed to sysdeps */
+#define CPU_COMPUTE_GLOBAL      ULONG_MAX
+
+unsigned long   cpu_clktck();
+int             cpu_store_ticks(
+                    sensor_family_t *       family,
+                    int                     cpu_idx,
+                    unsigned long           sys, /*can be CPU_COMPUTE_GLOBAL*/
+                    unsigned long           user,
+                    unsigned long           activity,
+                    unsigned long           total,
+                    struct timeval *        elapsed);
 
 /** Internal struct where data for one cpu is kept */
 typedef struct {

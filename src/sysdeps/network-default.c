@@ -27,6 +27,16 @@ sensor_status_t     sysdep_network_support(sensor_family_t * family, const char 
     return SENSOR_ERROR;
 }
 
+sensor_status_t sysdep_network_init(sensor_family_t * family) {
+    (void)family;
+    return SENSOR_SUCCESS;
+}
+
+sensor_status_t sysdep_network_destroy(sensor_family_t * family) {
+    (void)family;
+    return SENSOR_SUCCESS;
+}
+
 sensor_status_t sysdep_network_get(
                     sensor_family_t *   family,
                     network_data_t *    data,
