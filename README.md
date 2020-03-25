@@ -16,6 +16,8 @@ initially written for OSX (10.11.6).
 This lib uses vlib (<https://github.com/vsallaberry/vlib>).
 
 NOTE: This is a work in progress, this lib is not fully operational yet.
+Please have a look at vsensorsdemo (<https://github.com/vsallaberry/vsensorsdemo>)
+to see how to use the lib and what it is doing at the moment.
 
 ## System requirements
 - A somewhat capable compiler (gcc/clang), make (GNU,BSD), sh (sh/bash/ksh)
@@ -116,6 +118,12 @@ WORK-IN-PROGRESS...
 <https://github.com/vsallaberry/libvsensors>
 
 ## Credits
+* Credits to devnull, Hendrik Holtmann, and Michael Wilber
+for the AppleSMC driver interface (src/sysdeps/smc-darwin.c and src/smc.c )
+inspired from their smcFanControl (GPL 2):  
+<https://github.com/hholtmann/smcFanControl.git>, 
+commit 2308d9b1941d3b84095610c8c72e10736bc0956a
+
 * Credits to Bill Wilson, Ben Hines and other gkrellm developers 
 (gkrellm, GPLv3, https://git.srcbox.net/gkrellm) for some hints
 about the way to retrieve some os-specific system informations.
@@ -123,5 +131,6 @@ about the way to retrieve some os-specific system informations.
 ## License
 GPLv3 or later. See LICENSE file.
 
-CopyRight: Copyright (C) 2017-2020 Vincent Sallaberry
+Copyright: Copyright (C) 2017-2020 Vincent Sallaberry
+**libvsensors** was first created and first published in 2017 by Vincent Sallaberry.
 
