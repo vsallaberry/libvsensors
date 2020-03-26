@@ -499,7 +499,7 @@ long double sensor_value_todouble(const sensor_value_t * value) {
 }
 
 intmax_t sensor_value_toint(const sensor_value_t * value) {
-    intmax_t    result;
+    intmax_t    result = 0;
 
     if (value == NULL) {
         errno = EFAULT;

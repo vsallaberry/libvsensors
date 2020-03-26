@@ -107,7 +107,6 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
     cpu_data_t *                        data = priv ? &priv->cpu_data : NULL;
     unsigned int                        i;
     unsigned int                        n_cpus;
-    (void) elapsed;
 
     if (sysdep == NULL) {
         return SENSOR_ERROR;

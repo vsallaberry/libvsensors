@@ -169,6 +169,9 @@ sensor_status_t sysdep_network_get(
         char if_name[IF_NAMESIZE+1] = {0, };
         if_name[IF_NAMESIZE] = 0;
         if_indextoname(ifm_index, if_name);
+        #ifndef _DEBUG
+        (void) ifi_type;
+        #endif
         LOG_DEBUG(
             family->log,
             "RTM_IFINFO%u #%d %s TYPE:%u UP:%d LO:%d I:%llu O:%llu FLAGS:%d"
