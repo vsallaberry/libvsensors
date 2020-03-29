@@ -183,7 +183,7 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
                         cpu_store_ticks(family, n, sys, user, activity, total, elapsed);
 
                         LOG_DEBUG(family->log,
-                            "CPU%lu %u%% (usr:%u sys:%u)\n",
+                            "CPU%lu %u%% (usr:%u sys:%u)",
                             n,
                             data->ticks[n].activity_percent,
                             data->ticks[n].user_percent,
