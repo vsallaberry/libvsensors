@@ -50,13 +50,22 @@
 #define SMC_ERROR                   (-1)
 struct log_s;
 typedef struct log_s log_t;
-# define LOG_ERROR(log, ...)            (fprintf(stderr, __VA_ARGS__))
-# define LOG_WARN(log, ...)             (fprintf(stderr, __VA_ARGS__))
-# define LOG_INFO(log, ...)             (fprintf(stderr, __VA_ARGS__))
-# define LOG_VERBOSE(log, ...)          (fprintf(stderr, __VA_ARGS__))
-# define LOG_DEBUG(log, ...)            (fprintf(stderr, __VA_ARGS__))
-# define LOG_SCREAM(log, ...)           (fprintf(stderr, __VA_ARGS__))
-# define LOG_DEBUG_BUF(log,buf,sz,...)  (fprintf(stderr, __VA_ARGS__))
+# define LOG_LVL_DEBUG                  5
+# define LOG_LVL_SCREAM                 6
+# define INFO(...)                      (fprintf(stderr, __VA_ARGS__))
+# ifdef _DEBUG
+# define TRACE(...)                     INFO(__VA_ARGS__)
+# else
+# define TRACE(...)                     (0)
+# endif
+# define LOG_ERROR(log, ...)            (INFO(__VA_ARGS__))
+# define LOG_WARN(log, ...)             (INFO(__VA_ARGS__))
+# define LOG_INFO(log, ...)             (INFO(__VA_ARGS__))
+# define LOG_VERBOSE(log, ...)          (TRACE(__VA_ARGS__))
+# define LOG_DEBUG(log, ...)            (TRACE(__VA_ARGS__))
+# define LOG_SCREAM(log, ...)           (TRACE(__VA_ARGS__))
+# define LOG_DEBUG_BUF(log,buf,sz,...)  (TRACE(__VA_ARGS__))
+# define LOG_BUFFER(lvl,log,buf,sz,...) (TRACE(__VA_ARGS__))
 #endif
 
 /* ************************************************************************ */
@@ -220,7 +229,7 @@ static int smc_get_keyinfo(
     }
 
     /* not found in cache */
-    LOG_DEBUG(log, "SMC KEY %08x : not found in cache", key);
+    LOG_SCREAM(log, "SMC KEY %08x : not found in cache", key);
 
     SMCKeyData_t input_data;
     SMCKeyData_t output_data;
