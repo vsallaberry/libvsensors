@@ -52,12 +52,18 @@ static const sensor_family_info_t * s_families_info[] = {
     NULL
 };
 
+typedef enum {
+    SFC_NONE            = 0,
+    SFC_FREE_LOGPOOL    = 1 << 0,
+} sensors_flags_t;
+
 struct sensor_ctx_s {
     slist_t *       families;
     slist_t *       watchs;
     slist_t *       sensors;
     int             flags;
     log_t *         log;
+    logpool_t *     logpool;
 };
 
 sensor_ctx_t * sensor_init(logpool_t * logs) {
@@ -68,6 +74,11 @@ sensor_ctx_t * sensor_init(logpool_t * logs) {
     if ((sctx = calloc(1, sizeof(sensor_ctx_t))) == NULL) {
         return NULL;
     }
+    if (logs == NULL) {
+        sctx->flags |= SFC_FREE_LOGPOOL;
+        logs = logpool_create();
+    }
+    sctx->logpool = logs;
     sctx->log = logpool_getlog(logs, "sensors", LPG_TRUEPREFIX);
     for (unsigned i_fam = 0; i_fam < nb_fam && s_families_info[i_fam]; i_fam++) {
         const sensor_family_info_t *    fam_info    = s_families_info[i_fam];
@@ -113,9 +124,14 @@ sensor_status_t sensor_free(sensor_ctx_t * sctx) {
         if (fam->info->free && fam->info->free(fam) != SENSOR_SUCCESS) {
             LOG_ERROR(sctx->log, "sensor family %s cannot be freed", fam->info->name);
         }
+        logpool_release(sctx->logpool, fam->log);
         free(fam);
     }
     slist_free(sctx->families, NULL);
+    logpool_release(sctx->logpool, sctx->log);
+    if ((sctx->flags & SFC_FREE_LOGPOOL) != 0) {
+        logpool_free(sctx->logpool);
+    }
     free(sctx);
     return SENSOR_SUCCESS;
 }
