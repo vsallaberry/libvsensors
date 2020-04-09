@@ -266,6 +266,9 @@ struct sensor_sample_s {
 /** opaque sensor handle */
 typedef struct sensor_ctx_s sensor_ctx_t;
 
+/** prefix used for libvsensors */
+#define SENSOR_LOG_PREFIX   "sensors"
+
 /**
  * Initialize sensor module. Must be called prior to all other operations.
  * User must clean it with sensor_free().

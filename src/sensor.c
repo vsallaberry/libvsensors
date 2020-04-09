@@ -79,7 +79,7 @@ sensor_ctx_t * sensor_init(logpool_t * logs) {
         logs = logpool_create();
     }
     sctx->logpool = logs;
-    sctx->log = logpool_getlog(logs, "sensors", LPG_TRUEPREFIX);
+    sctx->log = logpool_getlog(logs, SENSOR_LOG_PREFIX, LPG_TRUEPREFIX);
     for (unsigned i_fam = 0; i_fam < nb_fam && s_families_info[i_fam]; i_fam++) {
         const sensor_family_info_t *    fam_info    = s_families_info[i_fam];
         sensor_family_t *               fam;
@@ -727,16 +727,23 @@ int sensor_value_compare_fallback(const sensor_value_t * v1, const sensor_value_
     return memcmp(s1, s2, sizeof(s1) / sizeof(*s1)) * sign1;
 }
 
+/************************************************************************** */
+static const char * s_libvsensors_version
+    = OPT_VERSION_STRING(BUILD_APPNAME, APP_VERSION, "git:" BUILD_GITREV);
+
 const char * libvsensors_get_version() {
-    return OPT_VERSION_STRING(BUILD_APPNAME, APP_VERSION, "git:" BUILD_GITREV);
+    return s_libvsensors_version;
 }
 
+/************************************************************************** */
 #ifndef APP_INCLUDE_SOURCE
-# define APP_NO_SOURCE_STRING "\n/* #@@# FILE #@@# " BUILD_APPNAME "/* */\n" \
-                              BUILD_APPNAME " source not included in this build.\n"
+static const char * s_libvsensors_no_source_string
+    = "\n/* #@@# FILE #@@# " BUILD_APPNAME "/* */\n" \
+      BUILD_APPNAME " source not included in this build.\n";
+
 int libvsensors_get_source(FILE * out, char * buffer, unsigned int buffer_size, void ** ctx) {
-    return vdecode_buffer(out, buffer, buffer_size, ctx,
-                          APP_NO_SOURCE_STRING, sizeof(APP_NO_SOURCE_STRING) - 1);
+    return vdecode_buffer(out, buffer, buffer_size, ctx, s_libvsensors_no_source_string,
+                          strlen(s_libvsensors_no_source_string));
 }
 #endif
 
