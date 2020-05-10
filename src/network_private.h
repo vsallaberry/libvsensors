@@ -32,8 +32,12 @@ extern "C" {
 typedef struct {
     TYPE_SENSOR_VALUE_ULONG     ibytes;
     TYPE_SENSOR_VALUE_ULONG     obytes;
+    TYPE_SENSOR_VALUE_ULONG     phy_ibytes;
+    TYPE_SENSOR_VALUE_ULONG     phy_obytes;
     TYPE_SENSOR_VALUE_ULONG     ibytespersec;
     TYPE_SENSOR_VALUE_ULONG     obytespersec;
+    TYPE_SENSOR_VALUE_ULONG     phy_ibytespersec;
+    TYPE_SENSOR_VALUE_ULONG     phy_obytespersec;
 } network_data_t;
 
 /** private/specific network family structure */

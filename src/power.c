@@ -17,15 +17,15 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 /* ------------------------------------------------------------------------
- * battery sensors for Generic Sensor Management Library.
+ * power sensors for Generic Sensor Management Library.
  */
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "battery.h"
+#include "power.h"
 
-sensor_status_t sysdep_battery_support(sensor_family_t * family, const char * label);
+sensor_status_t sysdep_power_support(sensor_family_t * family, const char * label);
 
 static sensor_status_t family_free(sensor_family_t *family) {
     (void)family; //TODO
@@ -38,7 +38,7 @@ static sensor_status_t family_free(sensor_family_t *family) {
 }
 
 static sensor_status_t family_init(sensor_family_t *family) {
-    if (sysdep_battery_support(family, NULL) != SENSOR_SUCCESS) {
+    if (sysdep_power_support(family, NULL) != SENSOR_SUCCESS) {
         family_free(family);
         return SENSOR_NOT_SUPPORTED;
     }
@@ -72,11 +72,13 @@ static sensor_status_t family_update(sensor_sample_t *sensor, const struct timev
     }
 }
 
-const sensor_family_info_t g_sensor_family_battery = {
-    .name = "battery",
+const sensor_family_info_t g_sensor_family_power = {
+    .name = "power",
     .init = family_init,
     .free = family_free,
     .update = family_update,
     .list = family_list,
+    .notify = NULL,
+    .write = NULL
 };
 

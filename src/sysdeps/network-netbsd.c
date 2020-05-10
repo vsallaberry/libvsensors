@@ -2,6 +2,10 @@
  * Copyright (C) 2020 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
+ * Credits to Bill Wilson, Ben Hines and other gkrellm developers
+ * (gkrellm, GPLv3, https://git.srcbox.net/gkrellm) for some hints
+ * about the way to retrieve some os-specific system informations.
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 3 of the License, or
@@ -17,21 +21,17 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 /* ------------------------------------------------------------------------
- * battery sensors for Generic Sensor Management Library.
+ * netbsd network interface for Generic Sensor Management Library.
  */
-#ifndef SENSOR_BATTERY_H
-#define SENSOR_BATTERY_H
 
-#include "libvsensors/sensor.h"
+/* USE sysdeps/network-darwin.c */
+#define __APPLE__
+#include "network-darwin.c"
+#undef __APPLE__
 
-#ifdef __cplusplus
-extern "C" {
+#ifndef __NetBSD__
+# warning "building file without __NetBSD__ defined"
 #endif
 
-extern const sensor_family_info_t g_sensor_family_battery;
+/* ! USE sysdeps/network-darwin.c */
 
-#ifdef __cplusplus
-}
-#endif
-
-#endif

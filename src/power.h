@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Vincent Sallaberry
+ * Copyright (C) 2020 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,28 +17,21 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 /* ------------------------------------------------------------------------
- * Generic Sensor Management Library.
+ * power sensors for Generic Sensor Management Library.
  */
-#include "memory_private.h"
+#ifndef SENSOR_BATTERY_H
+#define SENSOR_BATTERY_H
 
-sensor_status_t     sysdep_memory_support(sensor_family_t * family, const char * label) {
-    (void) family;
-    (void) label;
-    return SENSOR_ERROR;
+#include "libvsensors/sensor.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+extern const sensor_family_info_t g_sensor_family_power;
+
+#ifdef __cplusplus
 }
+#endif
 
-sensor_status_t     sysdep_memory_init(sensor_family_t * family) {
-    (void) family;
-    return SENSOR_ERROR;
-}
-
-void                sysdep_memory_destroy(sensor_family_t * family) {
-    (void) family;
-}
-
-sensor_status_t     sysdep_memory_get(sensor_family_t * family, memory_data_t *data) {
-    (void)family;
-    (void)data;
-    return SENSOR_ERROR;
-}
-
+#endif

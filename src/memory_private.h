@@ -37,6 +37,10 @@ typedef struct {
     TYPE_SENSOR_VALUE_ULONG     used;
     TYPE_SENSOR_VALUE_ULONG     total;
     TYPE_SENSOR_VALUE_UCHAR     used_percent;
+    TYPE_SENSOR_VALUE_ULONG     total_swap;
+    TYPE_SENSOR_VALUE_ULONG     used_swap;
+    TYPE_SENSOR_VALUE_ULONG     free_swap;
+    TYPE_SENSOR_VALUE_UCHAR     used_swap_percent;
 } memory_data_t;
 
 /** private/specific family structure */
@@ -44,9 +48,12 @@ typedef struct {
     sensor_desc_t *     sensors_desc;
     memory_data_t       memory_data;
     struct timeval      last_update_time;
-} priv_t;
+    void *              sysdep;
+} memory_priv_t;
 
 sensor_status_t sysdep_memory_support(sensor_family_t * family, const char * label);
+sensor_status_t sysdep_memory_init(sensor_family_t * family);
+void            sysdep_memory_destroy(sensor_family_t * family);
 sensor_status_t sysdep_memory_get(sensor_family_t * family, memory_data_t *data);
 
 #ifdef __cplusplus

@@ -27,12 +27,28 @@
 #include <mach/mach.h>
 #include <mach/mach_error.h>
 
+#include <fnmatch.h>
+
 #include "memory_private.h"
 
 sensor_status_t     sysdep_memory_support(sensor_family_t * family, const char * label) {
     (void) family;
     (void) label;
+    if (label != NULL) {
+        if (fnmatch("*swap*", label, FNM_CASEFOLD) == 0) {
+            return SENSOR_ERROR;
+        }
+    }
     return SENSOR_SUCCESS;
+}
+
+sensor_status_t     sysdep_memory_init(sensor_family_t * family) {
+    (void) family;
+    return SENSOR_SUCCESS;
+}
+
+void                sysdep_memory_destroy(sensor_family_t * family) {
+    (void) family;
 }
 
 /**
@@ -58,7 +74,17 @@ sensor_status_t sysdep_memory_get(sensor_family_t * family, memory_data_t *data)
     data->free = ((natural_t)vmStats.free_count) * (unsigned long)((natural_t)vm_page_size);
     data->used = data->active + data->wired;
     data->total = data->active + data->inactive + data->free + data->wired;
-    data->used_percent = ((data->used/1024.0) / (data->total/1024.0)) * 100;
+    if (data->total == 0)
+        data->used_percent = 100;
+    else
+        data->used_percent = ((data->used/1024.0) / (data->total/1024.0)) * 100;
+
+    /* TODO SWAP
+    data->used_swap = 0;
+    data->free_swap = 0;
+    data->total_swap = 0;
+    data->used_swap_percent = 0;
+    */
 
     return SENSOR_SUCCESS;
 }

@@ -34,22 +34,24 @@
 /* use sysconf instead of deprecated CLK_TCK */
 static unsigned long s_clk_tck = 0;
 
+static void cpu_init_clktck() {
+    long clk_tck = sysconf(_SC_CLK_TCK);
+    if (clk_tck <= 0) {
+        /* don't use CLOCKS_PER_SEC because POSIX requires it is 1000000 */
+        #ifdef CLK_TCK
+        s_clk_tck = CLK_TCK;
+        #else
+        LOG_WARN(NULL, "sysconf(_SC_CLK_TCK) failed and no CLK_TCK ! using 100Hz !");
+        s_clk_tck = 100;
+        #endif
+    } else {
+        s_clk_tck = clk_tck;
+    }
+}
 unsigned long cpu_clktck() {
     if (s_clk_tck > 0)
         return s_clk_tck;
-
-    long clk_tck = sysconf(_SC_CLK_TCK);
-    if (clk_tck <= 0) {
-        #ifdef CLK_TCK
-        s_clk_tck = CLK_TCK;
-        #elif defined(CLOCKS_PER_SEC)
-        s_clk_tck = CLOCKS_PER_SEC;
-        #else
-        #warning "NO CLK_TCK or CLOCKS_PER_SEC"
-        s_clk_tck = 100;
-        #endif
-    } else
-        s_clk_tck = clk_tck;
+    cpu_init_clktck();
     return s_clk_tck;
 }
 
@@ -63,7 +65,7 @@ static sensor_status_t family_free(sensor_family_t *family) {
         if (priv->sensors_desc != NULL) {
             sensor_desc_t * desc;
             for (desc = priv->sensors_desc; desc->label != NULL; ++desc)
-                free(desc->label);
+                free((void*) desc->label);
             free(priv->sensors_desc);
         }
         sysdep_cpu_destroy(family);
@@ -90,23 +92,23 @@ static sensor_status_t init_one_desc(
                             const char *            fmt_label,
                             ...) {
     va_list valist;
+    char *  label = NULL;
 
     va_start(valist, fmt_label);
+    vasprintf(&label, fmt_label, valist);
+    va_end(valist);
 
-    vasprintf(&desc->label, fmt_label, valist);
-
-    if (sysdep_cpu_support(family, desc->label) != SENSOR_SUCCESS) {
-        if (desc->label != NULL)
-            free(desc->label);
-        va_end(valist);
+    if (sysdep_cpu_support(family, label) != SENSOR_SUCCESS) {
+        if (label != NULL)
+            free(label);
         return SENSOR_ERROR;
     }
 
+    desc->label = label;
     desc->type = type;
     desc->family = family;
     desc->key = key;
-
-    va_end(valist);
+    desc->properties = NULL;
 
     return SENSOR_SUCCESS;
 }
@@ -120,6 +122,7 @@ static sensor_status_t init_private_data(sensor_family_t *family) {
     const unsigned  nb_desc_per_cpu = 7;
     sensor_desc_t * desc;
 
+    priv->last_update_time.tv_usec = INT_MAX;
     priv->cpu_data.nb_cpus = nb_cpus = sysdep_cpu_nb(family);
 
     if ((priv->cpu_data.ticks = calloc(nb_cpus + 1, sizeof(cpu_tick_t))) == NULL) {
@@ -128,12 +131,17 @@ static sensor_status_t init_private_data(sensor_family_t *family) {
     }
 
     if ((priv->sensors_desc
-            = calloc(nb_desc_per_cpu * (nb_cpus + 1) + 1,
+            = calloc(nb_desc_per_cpu * (nb_cpus + 1) + 1/*nb_cpus*/ + 1/*NULL*/,
                      sizeof(*priv->sensors_desc))) == NULL) {
         return SENSOR_ERROR;
     }
 
     desc = priv->sensors_desc;
+
+    if (init_one_desc(family, desc, SENSOR_VALUE_UINT16, &(priv->cpu_data.nb_cpus),
+                      "number of cpus") == SENSOR_SUCCESS)
+        ++desc;
+
     for (i = 0; i <= priv->cpu_data.nb_cpus; i++) {
         char cpu_name[10];
 
@@ -146,49 +154,49 @@ static sensor_status_t init_private_data(sensor_family_t *family) {
                     family, desc,
                     SENSOR_VALUE_ULONG,
                     &priv->cpu_data.ticks[i].sys,
-                    "cpu%s sys usage", cpu_name) == SENSOR_SUCCESS)
+                    "cpu%s sys", cpu_name) == SENSOR_SUCCESS)
             ++desc;
 
         if (init_one_desc(
                     family, desc,
                     SENSOR_VALUE_ULONG,
                     &priv->cpu_data.ticks[i].user,
-                    "cpu%s user usage", cpu_name) == SENSOR_SUCCESS)
+                    "cpu%s user", cpu_name) == SENSOR_SUCCESS)
             ++desc;
 
         if (init_one_desc(
                     family, desc,
                     SENSOR_VALUE_ULONG,
                     &priv->cpu_data.ticks[i].activity,
-                    "cpu%s activity usage", cpu_name) == SENSOR_SUCCESS)
+                    "cpu%s activity", cpu_name) == SENSOR_SUCCESS)
             ++desc;
 
         if (init_one_desc(
                     family, desc,
                     SENSOR_VALUE_ULONG,
                     &priv->cpu_data.ticks[i].total,
-                    "cpu%s total usage", cpu_name) == SENSOR_SUCCESS)
+                    "cpu%s total", cpu_name) == SENSOR_SUCCESS)
             ++desc;
 
         if (init_one_desc(
                     family, desc,
                     SENSOR_VALUE_UCHAR,
                     &priv->cpu_data.ticks[i].sys_percent,
-                    "cpu%s sys usage %%", cpu_name) == SENSOR_SUCCESS)
+                    "cpu%s sys %%", cpu_name) == SENSOR_SUCCESS)
             ++desc;
 
         if (init_one_desc(
                     family, desc,
                     SENSOR_VALUE_UCHAR,
                     &priv->cpu_data.ticks[i].user_percent,
-                    "cpu%s user usage %%", cpu_name) == SENSOR_SUCCESS)
+                    "cpu%s user %%", cpu_name) == SENSOR_SUCCESS)
             ++desc;
 
         if (init_one_desc(
                     family, desc,
                     SENSOR_VALUE_UCHAR,
                     &priv->cpu_data.ticks[i].activity_percent,
-                    "cpu%s total usage %%", cpu_name) == SENSOR_SUCCESS)
+                    "cpu%s total %%", cpu_name) == SENSOR_SUCCESS)
             ++desc;
     }
     desc->label = NULL;
@@ -201,7 +209,9 @@ static sensor_status_t init_private_data(sensor_family_t *family) {
 /* ************************************************************************ */
 /** family-specific init */
 static sensor_status_t family_init(sensor_family_t *family) {
-    // Sanity checks done before in sensor_init()
+    /* init clk_tck */
+    cpu_clktck();
+    /* Sanity checks done before in sensor_init() */
     if (family->priv != NULL) {
         LOG_ERROR(family->log, "error: %s data already initialized", family->info->name);
         return SENSOR_ERROR;
@@ -241,21 +251,17 @@ int cpu_store_ticks(sensor_family_t * family,
                     unsigned long activity, unsigned long total,
                     struct timeval * elapsed) {
 
-    cpu_priv_t *    priv = family != NULL ? (cpu_priv_t *) family->priv : NULL;
+    cpu_priv_t *    priv = (cpu_priv_t *) family->priv;
     cpu_tick_t *    ticks;
 
-    if (priv == NULL || cpu_idx < 0 || cpu_idx > priv->cpu_data.nb_cpus) {
-        return -1;
-    }
-
     /* compute global (all cpus) values */
-    if (cpu_idx == 0 && (   sys == CPU_COMPUTE_GLOBAL || user == CPU_COMPUTE_GLOBAL
-                         || activity == CPU_COMPUTE_GLOBAL || total == CPU_COMPUTE_GLOBAL)) {
+    if (cpu_idx == CPU_COMPUTE_GLOBAL) {
         unsigned long   global_total = 0;
         unsigned long   global_activity = 0;
         unsigned long   global_user = 0;
         unsigned long   global_sys = 0;
 
+        cpu_idx = 0;
         for (int i_cpu = priv->cpu_data.nb_cpus; i_cpu > 0; --i_cpu) {
             ticks = &(priv->cpu_data.ticks[i_cpu]);
 
@@ -271,33 +277,39 @@ int cpu_store_ticks(sensor_family_t * family,
         activity    = global_activity   / priv->cpu_data.nb_cpus;
         user        = global_user       / priv->cpu_data.nb_cpus;
         sys         = global_sys        / priv->cpu_data.nb_cpus;
+    } else if (cpu_idx < 0 || cpu_idx > priv->cpu_data.nb_cpus) {
+        return SENSOR_ERROR;
     }
 
     ticks = &(priv->cpu_data.ticks[cpu_idx]);
 
-    if (elapsed != NULL && (elapsed->tv_sec > 0 || elapsed->tv_usec >= 1000)) {
-        unsigned long   clk_tck = cpu_clktck();
-
+    if (elapsed != NULL) {
         unsigned long   activity_percent
-                            = (10 * 100 * (activity - ticks->activity) + 1) / clk_tck;
+                            = (10 * 100 * (activity - ticks->activity)) / s_clk_tck;
 
         unsigned long   user_percent
-                            = (10 * 100 * (user - ticks->user) + 1) / clk_tck;
+                            = (10 * 100 * (user - ticks->user)) / s_clk_tck;
 
         unsigned long   sys_percent
-                            = (10 * 100 * (sys - ticks->sys) + 1) / clk_tck;
+                            = (10 * 100 * (sys - ticks->sys)) / s_clk_tck;
 
         ticks->activity_percent
                     = (100 * activity_percent)
                     / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000);
+        if (ticks->activity_percent > 100)
+            ticks->activity_percent = 100;
 
         ticks->user_percent
                     = (100 * user_percent)
                     / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000);
+        if (ticks->user_percent > 100)
+            ticks->user_percent = 100;
 
         ticks->sys_percent
                     = (100 * sys_percent)
                     / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000);
+        if (ticks->sys_percent > 100)
+            ticks->sys_percent = 100;
     }
 
     /* finally stores the tick values */
@@ -306,38 +318,36 @@ int cpu_store_ticks(sensor_family_t * family,
     ticks->sys         = sys;
     ticks->total       = total;
 
-    return 0;
+    return SENSOR_SUCCESS;
 }
 
 /* ************************************************************************ */
 /** family-specific update */
 static sensor_status_t family_update(sensor_sample_t *sensor, const struct timeval * now) {
-    /* Sanity checks are done in sensor_update_get() */
-    cpu_priv_t * fpriv = (cpu_priv_t *) sensor->desc->family->priv;
+    /* Sanity checks are done in sensor_init() and sensor_update_check() */
+    cpu_priv_t *    priv = (cpu_priv_t *) sensor->desc->family->priv;
 
-    if (fpriv == NULL) {
-       return SENSOR_ERROR;
-    }
+    if (now == NULL) {
+        sysdep_cpu_get(sensor->desc->family, NULL);
+    } else if (priv->last_update_time.tv_usec == INT_MAX) {
+        sysdep_cpu_get(sensor->desc->family, NULL);
+        priv->last_update_time = *now;
+    } else {
+        /* Because all cpu datas are retrieved at once, don't repeat it for each sensor */
+        struct timeval  elapsed, * pelapsed = &elapsed;
 
-    /* Because all cpu datas are retrieved at once, don't repeat it for each sensor */
-    int bfirst = fpriv->last_update_time.tv_sec == 0
-                 && fpriv->last_update_time.tv_usec < 1000;
-    struct timeval elapsed;
-    struct timeval limit = {
-        .tv_sec     = sensor->watch.update_interval_ms / 1000,
-        .tv_usec    = (sensor->watch.update_interval_ms % 1000) * 1000,
-    };
-
-    timersub(now, &fpriv->last_update_time, &elapsed);
-    if (bfirst || timercmp(&elapsed, &limit, >=)) {
-        if (sysdep_cpu_get(sensor->desc->family, bfirst ? NULL : &elapsed) == SENSOR_SUCCESS) {
-            /* nothing to do */
+        timersub(now, &(priv->last_update_time), &elapsed);
+        if (elapsed.tv_sec == 0 && elapsed.tv_usec < 1000)
+            pelapsed = NULL;
+        if (timercmp(&elapsed, &(sensor->watch->update_interval), >=)) {
+            sysdep_cpu_get(sensor->desc->family, pelapsed);
+            priv->last_update_time = *now;
         }
-        fpriv->last_update_time = *now;
     }
 
-    /* Always update the sensor Value; */
-    return sensor_value_fromraw(sensor->desc->key, &sensor->value);
+    /* Always update the sensor Value: we are called because sensor timeout expired.
+     * and another sensor with different timeout could have updated global data */
+    return sensor_value_fromraw(sensor->desc->key, &(sensor->value));
 }
 
 /* ************************************************************************ */
@@ -347,5 +357,7 @@ const sensor_family_info_t g_sensor_family_cpu = {
     .free = family_free,
     .update = family_update,
     .list = family_list,
+    .notify = NULL,
+    .write = NULL
 };
 

@@ -30,10 +30,12 @@ sensor_status_t sysdep_smc_support(sensor_family_t * family, const char * label)
     return SENSOR_ERROR;
 }
 
-int                 sysdep_smc_open(void ** psmc_handle, log_t *log, unsigned int * maxsize) {
+int sysdep_smc_open(void ** psmc_handle, log_t *log,
+                    unsigned int * bufsize, unsigned int * value_offset) {
     (void)psmc_handle;
     (void)log;
-    (void)maxsize;
+    (void)bufsize;
+    (void)value_offset;
     return SENSOR_ERROR;
 }
 
@@ -46,12 +48,12 @@ int                 sysdep_smc_close(void ** psmc_handle, log_t *log) {
 int                 sysdep_smc_readkey(
                         uint32_t        key,
                         uint32_t *      value_type,
-                        void *          value_bytes,
+                        void *          output_buffer,
                         void *          smc_handle,
                         log_t *         log) {
     (void)key;
     (void)value_type;
-    (void)value_bytes;
+    (void)output_buffer;
     (void)smc_handle;
     (void)log;
     return SENSOR_ERROR;
@@ -60,12 +62,12 @@ int                 sysdep_smc_readkey(
 int                 sysdep_smc_readindex(
                         uint32_t        index,
                         uint32_t *      value_type,
-                        void *          value_bytes,
+                        void *          output_buffer,
                         void *          smc_handle,
                         log_t *         log) {
     (void)index;
     (void)value_type;
-    (void)value_bytes;
+    (void)output_buffer;
     (void)smc_handle;
     (void)log;
     return SENSOR_ERROR;

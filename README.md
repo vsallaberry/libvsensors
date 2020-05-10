@@ -24,11 +24,12 @@ to see how to use the lib and what it is doing at the moment.
   and coreutils (awk,grep,sed,date,touch,head,printf,which,find,test,...)
 
 This is not an exhaustive list but the list of systems on which it has been built:
-- Linux: slitaz 4 2.6.37, ubuntu 12.04 3.11.0, debian9.
+- Linux: slitaz 4 2.6.37, ubuntu 12.04 3.11.0, debian9 4.9.
 - OSX 10.11.6
 - OpenBSD 5.5
-- FreeBSD 11.1
-
+- FreeBSD 11
+- NetBSD 9
+  
 ## Compilation
 
 ### Cloning **libvsensors** repository

@@ -74,7 +74,8 @@ unsigned int    sysdep_cpu_nb(sensor_family_t * family) {
     if (priv != NULL && priv->sysdep == NULL) {
         if ((priv->sysdep = malloc(sizeof(cpu_sysdep_t))) == NULL) {
             LOG_WARN(family->log, "%s(): malloc(cpu_sysdep_t): %s", __func__, strerror(errno));
-        } else {
+        }
+        else {
             cpu_sysdep_t * sysdep = (cpu_sysdep_t *) priv->sysdep;
             sysdep->pinfo = NULL;
             sysdep->info_count = 0;
@@ -102,11 +103,13 @@ void            sysdep_cpu_destroy(sensor_family_t * family) {
 
 /* ************************************************************************ */
 sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed) {
-    cpu_priv_t *                        priv = (cpu_priv_t *) family->priv;
-    cpu_sysdep_t *                      sysdep =  priv ? (cpu_sysdep_t *) priv->sysdep : NULL;
-    cpu_data_t *                        data = priv ? &priv->cpu_data : NULL;
+    cpu_priv_t *                        priv        = (cpu_priv_t *) family->priv;
+    cpu_sysdep_t *                      sysdep      = (cpu_sysdep_t *) priv->sysdep;
+    cpu_data_t *                        data        = &(priv->cpu_data);
     unsigned int                        i;
-    unsigned int                        n_cpus;
+    unsigned int                        n_cpus      = data->nb_cpus;
+    processor_cpu_load_info_data_t *    pinfo       = sysdep->pinfo;
+    mach_msg_type_number_t              info_count  = sysdep->info_count;
 
     if (sysdep == NULL) {
         return SENSOR_ERROR;
@@ -115,11 +118,18 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
     if (host_processor_info (mach_host_self(),
                        PROCESSOR_CPU_LOAD_INFO,
                        &n_cpus,
-                       (processor_info_array_t *) &(sysdep->pinfo),
-                       &(sysdep->info_count)) != KERN_SUCCESS
-    ||  sysdep->pinfo == NULL) {
+                       (processor_info_array_t *) &(pinfo),
+                       &info_count) != KERN_SUCCESS
+    ||  pinfo == NULL) {
         LOG_ERROR(family->log, "%s/%s(): error host_processo_info", __FILE__, __func__);
         return SENSOR_ERROR;
+    }
+    if (pinfo != sysdep->pinfo || info_count != sysdep->info_count || n_cpus != data->nb_cpus) {
+        LOG_SCREAM(family->log, "cpu-darwin: pinfo reallocated = %lx", (unsigned long) pinfo);
+        if (sysdep->pinfo != NULL)
+            vm_deallocate(mach_task_self(), (vm_address_t) sysdep->pinfo, sysdep->info_count);
+        sysdep->pinfo = pinfo;
+        sysdep->info_count = info_count;
     }
 
     if (n_cpus > data->nb_cpus) {
@@ -137,11 +147,11 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
     }
 
     for (i = 1; i <= n_cpus; i++) {
-        unsigned long sys   = (sysdep->pinfo[i-1].cpu_ticks[CPU_STATE_SYSTEM]);
-        unsigned long user  = (sysdep->pinfo[i-1].cpu_ticks[CPU_STATE_USER])
-                            + (sysdep->pinfo[i-1].cpu_ticks[CPU_STATE_NICE]);
+        unsigned long sys   = (pinfo[i-1].cpu_ticks[CPU_STATE_SYSTEM]);
+        unsigned long user  = (pinfo[i-1].cpu_ticks[CPU_STATE_USER])
+                            + (pinfo[i-1].cpu_ticks[CPU_STATE_NICE]);
         unsigned long activity = sys + user;
-        unsigned long total = activity + (sysdep->pinfo[i-1].cpu_ticks [CPU_STATE_IDLE]);
+        unsigned long total = activity + (pinfo[i-1].cpu_ticks [CPU_STATE_IDLE]);
 
         cpu_store_ticks(family, i, sys, user, activity, total, elapsed);
 
@@ -152,13 +162,13 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
             data->ticks[i].activity_percent,
             data->ticks[i].user_percent,
             data->ticks[i].sys_percent,
-            sysdep->pinfo[i-1].cpu_ticks[CPU_STATE_USER],
-            sysdep->pinfo[i-1].cpu_ticks[CPU_STATE_NICE],
-            sysdep->pinfo[i-1].cpu_ticks[CPU_STATE_SYSTEM],
-            sysdep->pinfo[i-1].cpu_ticks[CPU_STATE_IDLE], cpu_clktck());
+            pinfo[i-1].cpu_ticks[CPU_STATE_USER],
+            pinfo[i-1].cpu_ticks[CPU_STATE_NICE],
+            pinfo[i-1].cpu_ticks[CPU_STATE_SYSTEM],
+            pinfo[i-1].cpu_ticks[CPU_STATE_IDLE], cpu_clktck());
     }
 
-    cpu_store_ticks(family, 0, CPU_COMPUTE_GLOBAL, 0, 0, 0, elapsed);
+    cpu_store_ticks(family, CPU_COMPUTE_GLOBAL, 0, 0, 0, 0, elapsed);
 
     LOG_DEBUG(family->log,
                     "CPU %u%% (usr:%u sys:%u)",

@@ -28,12 +28,12 @@
  * Apple SMC driver interface for Generic Sensor Management Library.
  */
 
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
 
 #include <IOKit/IOKitLib.h>
-#include <libkern/OSAtomic.h>
 
 #ifdef HAVE_VERSION_H
 # include "version.h"
@@ -50,6 +50,7 @@
 #define SMC_ERROR                   (-1)
 struct log_s;
 typedef struct log_s log_t;
+typedef void sensor_family_t
 # define LOG_LVL_DEBUG                  5
 # define LOG_LVL_SCREAM                 6
 # define INFO(...)                      (fprintf(stderr, __VA_ARGS__))
@@ -118,8 +119,9 @@ typedef struct {
 
 
 /* ************************************************************************ */
-/* Cache the key_info to avoid multiple calls to smc_call() */
-#define SMC_KEYINFO_CACHE_SIZE 300
+/* Cache the key_info to avoid multiple calls to smc_call()
+ * Cache is not used when key_info is given with sysdep_smc_read{key,index}. */
+#define SMC_KEYINFO_CACHE_SIZE 100
 static struct {
     UInt32                  key;
     SMCKeyData_keyInfo_t    key_info;
@@ -127,22 +129,44 @@ static struct {
 
 static int          s_keyinfo_cache_count   = 0;
 static int          s_keyinfo_cache_index   = 0;
-static OSSpinLock   s_keyinfo_lock          = OS_SPINLOCK_INIT;
+
+#define SMC_LOCK_TYPE 1
+#if SMC_LOCK_TYPE == 1
+# include <pthread.h>
+# define SMC_LOCK(lock)      pthread_mutex_lock(&(lock))
+# define SMC_UNLOCK(lock)    pthread_mutex_unlock(&(lock))
+pthread_mutex_t     s_keyinfo_lock = PTHREAD_MUTEX_INITIALIZER;
+#elif SMC_LOCK_TYPE == 2
+#include <libkern/OSAtomic.h>
+# define SMC_LOCK(lock)      OSSpinLockLock(&(lock))
+# define SMC_UNLOCK(lock)    OSSpinLockUnlock(&(lock))
+static OSSpinLock   s_keyinfo_lock = OS_SPINLOCK_INIT;
+#else
+# define SMC_LOCK(lock)
+# define SMC_UNLOCK(lock)
+#endif
+
 
 /* ************************************************************************ */
-int sysdep_smc_support(void * family, const char * label) {
+int sysdep_smc_support(sensor_family_t * family, const char * label) {
     (void) label;
     (void) family;
     return SMC_SUCCESS;
 }
 
 /* ************************************************************************ */
-int sysdep_smc_open(void ** psmc_handle, log_t * log, unsigned int * maxsize) {
+int sysdep_smc_open(void ** psmc_handle, log_t * log,
+                    unsigned int * bufsize, unsigned int * value_offset) {
     io_connect_t    io_connection;
     kern_return_t   result;
     io_iterator_t   iterator;
     io_object_t     device;
     /*mach_port_t     masterPort;*/
+
+    if (bufsize == NULL || value_offset == NULL) {
+        LOG_ERROR(log, "error: bufsize or value_offset pointers NULL !");
+        return SMC_ERROR;
+    }
 
     /* IOMasterPort(MACH_PORT_NULL, &masterPort); */
     CFMutableDictionaryRef matchingDictionary = IOServiceMatching(SMC_IOSERVICE_NAME);
@@ -167,9 +191,8 @@ int sysdep_smc_open(void ** psmc_handle, log_t * log, unsigned int * maxsize) {
         return SMC_ERROR;
     }
 
-    if (maxsize != NULL) {
-        *maxsize = sizeof(SMCBytes_t);
-    }
+    *bufsize = sizeof(SMCKeyData_t);
+    *value_offset = (unsigned int) ((unsigned long) &(((SMCKeyData_t *)0)->bytes));
     *psmc_handle = (void *)((unsigned long)io_connection);
 
     return SMC_SUCCESS;
@@ -196,8 +219,8 @@ static inline kern_return_t sysdep_smc_call(
                                 io_connect_t        io_connection,
                                 log_t *             log)
 {
-    const size_t    input_size  = sizeof(SMCKeyData_t);
-    size_t          output_size = sizeof(SMCKeyData_t);
+    const size_t    input_size  = sizeof(*input_data);
+    size_t          output_size = sizeof(*output_data);
     (void) log;
 
 #   if MAC_OS_X_VERSION_10_5
@@ -214,28 +237,31 @@ static int smc_get_keyinfo(
                 uint32_t                    key,
                 SMCKeyData_keyInfo_t *      key_info,
                 io_connect_t                io_connection,
-                log_t *                     log)
+                log_t *                     log,
+                int                         use_cache)
 {
+    SMCKeyData_t    input_data;
+    SMCKeyData_t    output_data;
     int             i;
     kern_return_t   result;
 
-    OSSpinLockLock(&s_keyinfo_lock);
-    for (i = 0; i < s_keyinfo_cache_count; ++i) {
-        if (s_smc_keyinfo_cache[i].key != 0 && key == s_smc_keyinfo_cache[i].key) {
-            *key_info = (s_smc_keyinfo_cache[i].key_info);
-            OSSpinLockUnlock(&s_keyinfo_lock);
-            return SMC_SUCCESS;
+    if (use_cache) {
+        SMC_LOCK(s_keyinfo_lock);
+        for (i = 0; i < s_keyinfo_cache_count; ++i) {
+            if (s_smc_keyinfo_cache[i].key != 0 && key == s_smc_keyinfo_cache[i].key) {
+                *key_info = (s_smc_keyinfo_cache[i].key_info);
+                SMC_UNLOCK(s_keyinfo_lock);
+                LOG_SCREAM(log, "SMC KEY %08x : Found in cache (idx:%d)", key, i);
+                return SMC_SUCCESS;
+            }
         }
+        /* not found in cache */
+        LOG_SCREAM(log, "SMC KEY %08x : not found in cache (sz:%d,idx:%d)",
+                   key, s_keyinfo_cache_count, s_keyinfo_cache_index);
     }
 
-    /* not found in cache */
-    LOG_SCREAM(log, "SMC KEY %08x : not found in cache", key);
-
-    SMCKeyData_t input_data;
-    SMCKeyData_t output_data;
-
-    memset(&input_data, 0, sizeof(SMCKeyData_t));
-    memset(&output_data, 0, sizeof(SMCKeyData_t));
+    memset(&input_data, 0, sizeof(input_data));
+    memset(&output_data, 0, sizeof(output_data));
 
     input_data.key = key;
     input_data.data8 = SMC_CMD_READ_KEYINFO;
@@ -243,20 +269,27 @@ static int smc_get_keyinfo(
     result = sysdep_smc_call(SMC_IOSERVICE_KERNEL_INDEX,
                              &input_data, &output_data, io_connection, log);
     if (result != kIOReturnSuccess) {
-        OSSpinLockUnlock(&s_keyinfo_lock);
+        if (use_cache)
+            SMC_UNLOCK(s_keyinfo_lock);
+        LOG_WARN(log, "SMC KEY %08x : cannot read key info ! (ret %lx)",
+                  key, (unsigned long) result);
         return SMC_ERROR;
     }
     *key_info = output_data.keyInfo;
 
-    s_smc_keyinfo_cache[s_keyinfo_cache_index].key_info = output_data.keyInfo;
-    s_smc_keyinfo_cache[s_keyinfo_cache_index].key = key;
-    if (++s_keyinfo_cache_index >= SMC_KEYINFO_CACHE_SIZE) {
-        s_keyinfo_cache_index = 0;
-    } else if (s_keyinfo_cache_count < SMC_KEYINFO_CACHE_SIZE) {
-        ++s_keyinfo_cache_count;
-    }
+    if (use_cache) {
+        s_smc_keyinfo_cache[s_keyinfo_cache_index].key_info = output_data.keyInfo;
+        s_smc_keyinfo_cache[s_keyinfo_cache_index].key = key;
+        if (++s_keyinfo_cache_index >= SMC_KEYINFO_CACHE_SIZE) {
+            s_keyinfo_cache_index = 0;
+        } else if (s_keyinfo_cache_count < SMC_KEYINFO_CACHE_SIZE) {
+            ++s_keyinfo_cache_count;
+        }
+        LOG_SCREAM(log, "SMC KEY %08x : added in cache nextidx=%d, sz=%d",
+                   key, s_keyinfo_cache_index, s_keyinfo_cache_count);
 
-    OSSpinLockUnlock(&s_keyinfo_lock);
+        SMC_UNLOCK(s_keyinfo_lock);
+    }
 
     return SMC_SUCCESS;
 }
@@ -265,33 +298,41 @@ static int smc_get_keyinfo(
 int             sysdep_smc_readkey(
                     uint32_t        key,
                     uint32_t *      value_type,
-                    void *          value_bytes,
+                    void **         key_info,
+                    void *          output_buffer,
                     void *          smc_handle,
                     log_t *         log)
 {
     io_connect_t            io_connection = (io_connect_t)((unsigned long)smc_handle);
     kern_return_t           result;
     SMCKeyData_t            input_data;
-    SMCKeyData_t            output_data;
+    SMCKeyData_t *          output_data = (SMCKeyData_t *) output_buffer;
     unsigned int            value_size;
 
     memset(&input_data, 0, sizeof(SMCKeyData_t));
-    memset(&output_data, 0, sizeof(SMCKeyData_t));
+    //memset(output_data, 0, sizeof(SMCKeyData_t));
 
-    if (smc_get_keyinfo(key, &(input_data.keyInfo), io_connection, log) != SMC_SUCCESS) {
+    if (key_info != NULL && *key_info != NULL) {
+        input_data.keyInfo = *((SMCKeyData_keyInfo_t*)*key_info);
+    } else if (smc_get_keyinfo(key, &(input_data.keyInfo), io_connection, log,
+                               key_info == NULL) == SMC_SUCCESS) {
+        if (key_info != NULL && (*key_info = malloc(sizeof(input_data.keyInfo))) != NULL) {
+            memcpy(*key_info, &(input_data.keyInfo), sizeof(input_data.keyInfo));
+        }
+    } else {
+        LOG_WARN(log, "key '%x': cannot get key info !", key);
         return SMC_ERROR;
     }
-
     value_size = input_data.keyInfo.dataSize;
 
     #ifdef _DEBUG
-    LOG_BUFFER(LOG_LVL_SCREAM, log, &key, sizeof(key), "KEY sz=%u ", value_size);
+    LOG_BUFFER(LOG_LVL_SCREAM, log, &key, sizeof(key), "KEY sz:%2u ", value_size);
     #endif
 
     if (value_type != NULL) {
         *value_type = input_data.keyInfo.dataType;
         #ifdef _DEBUG
-        LOG_BUFFER(LOG_LVL_SCREAM, log, value_type, sizeof(*value_type), "  TYPE  ");
+        LOG_BUFFER(LOG_LVL_SCREAM, log, value_type, sizeof(*value_type), "  TYPE    ");
         #endif
     }
 
@@ -299,16 +340,15 @@ int             sysdep_smc_readkey(
     input_data.key = key;
 
     result = sysdep_smc_call(SMC_IOSERVICE_KERNEL_INDEX, &input_data,
-                             &output_data, io_connection, log);
+                             output_data, io_connection, log);
     if (result != kIOReturnSuccess) {
+        LOG_DEBUG(log, "key '%x': cannot read bytes ! (ret %lx)",
+                  key, (unsigned long) result);
         return SMC_ERROR;
     }
-    if (value_bytes != NULL) {
-        memcpy(value_bytes, output_data.bytes, sizeof(output_data.bytes));
-        #ifdef _DEBUG
-        LOG_BUFFER(LOG_LVL_SCREAM, log, value_bytes, value_size, "  BYTES ");
-        #endif
-    }
+    #ifdef _DEBUG
+    LOG_BUFFER(LOG_LVL_SCREAM, log, output_data->bytes, value_size, "  BYTES   ");
+    #endif
 
     return value_size;
 }
@@ -318,48 +358,69 @@ int sysdep_smc_readindex(
         uint32_t    index,
         uint32_t *  value_key,
         uint32_t *  value_type,
-        void *      value_bytes,
+        void **     key_info,
+        void *      output_buffer,
         void *      smc_handle,
         log_t *     log) {
 
     io_connect_t    io_connection = (io_connect_t)((unsigned long)smc_handle);
     int             result;
     SMCKeyData_t    input_data;
-    SMCKeyData_t    output_data;
+    SMCKeyData_t *  output_data = (SMCKeyData_t *) output_buffer;
 
     memset(&input_data, 0, sizeof(SMCKeyData_t));
-    memset(&output_data, 0, sizeof(SMCKeyData_t));
+    memset(output_data, 0, sizeof(SMCKeyData_t));
 
     input_data.data8 = SMC_CMD_READ_INDEX;
     input_data.data32 = index;
 
+    if (key_info != NULL && *key_info != NULL) {
+        input_data.keyInfo = *((SMCKeyData_keyInfo_t *)*key_info);
+    }
+    if (value_key != NULL) {
+        input_data.key = *value_key;
+    }
+
     result = sysdep_smc_call(SMC_IOSERVICE_KERNEL_INDEX,
-                             &input_data, &output_data, io_connection, log);
-    if (result != SMC_SUCCESS) {
+                             &input_data, output_data, io_connection, log);
+    if (result != kIOReturnSuccess) {
         LOG_DEBUG(log, "%s() smc_call error", __func__);
         return SMC_ERROR;
     }
     #ifdef _DEBUG
-    LOG_BUFFER(LOG_LVL_SCREAM, log, &output_data.key,
-               sizeof(output_data.key), "#%04d KEY   ", index);
+    LOG_BUFFER(LOG_LVL_SCREAM, log, &output_data->key,
+               sizeof(output_data->key), "#%04d KEY   ", index);
     #endif
+
     if (value_key != NULL) {
-        *value_key = output_data.key;
+        *value_key = output_data->key;
     }
-    if (value_bytes != NULL) {
-        memcpy(value_bytes, output_data.bytes, sizeof(output_data.bytes));
-        #ifdef _DEBUG
-        LOG_BUFFER(LOG_LVL_SCREAM, log, value_bytes, sizeof(value_bytes), "      BYTES ");
-        #endif
-    }
-    if (value_type != NULL) {
-        smc_get_keyinfo(output_data.key, &output_data.keyInfo, io_connection, log);
-        *value_type = output_data.keyInfo.dataType;
+    #ifdef _DEBUG
+    LOG_BUFFER(LOG_LVL_SCREAM, log, output_data->bytes, sizeof(output_data->bytes),
+               "   %02u BYTES ", input_data.keyInfo.dataSize);
+    #endif
+
+    if (key_info != NULL && *key_info != NULL && value_type != NULL) {
+        *value_type = ((SMCKeyData_keyInfo_t *)*key_info)->dataType;
+    } else if (value_type != NULL || key_info != NULL) {
+        if (smc_get_keyinfo(output_data->key, &(output_data->keyInfo), io_connection, log,
+                            key_info == NULL)
+                == SMC_SUCCESS) {
+            input_data.keyInfo = output_data->keyInfo;
+            if (value_type != NULL)
+                *value_type = output_data->keyInfo.dataType;
+            if (key_info != NULL) {
+                if (*key_info != NULL
+                ||  (*key_info = malloc(sizeof(SMCKeyData_keyInfo_t))) != NULL) {
+                    memcpy(*key_info, &(output_data->keyInfo), sizeof(output_data->keyInfo));
+                }
+            }
+        }
         #ifdef _DEBUG
         LOG_BUFFER(LOG_LVL_SCREAM, log, value_type, sizeof(*value_type), "      TYPE  ");
         #endif
     }
 
-    return SMC_SUCCESS;
+    return input_data.keyInfo.dataSize;
 }
 

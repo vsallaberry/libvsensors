@@ -1,6 +1,10 @@
 /*
- * Copyright (C) 2018-2019 Vincent Sallaberry
+ * Copyright (C) 2020 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
+ *
+ * Credits to Bill Wilson, Ben Hines and other gkrellm developers
+ * (gkrellm, GPLv3, https://git.srcbox.net/gkrellm) for some hints
+ * about the way to retrieve some os-specific system informations.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,28 +21,17 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 /* ------------------------------------------------------------------------
- * Generic Sensor Management Library.
+ * openbsd network interface for Generic Sensor Management Library.
  */
-#include "memory_private.h"
 
-sensor_status_t     sysdep_memory_support(sensor_family_t * family, const char * label) {
-    (void) family;
-    (void) label;
-    return SENSOR_ERROR;
-}
+/* USE sysdeps/network-darwin.c */
+#define __APPLE__
+#include "network-darwin.c"
+#undef __APPLE__
 
-sensor_status_t     sysdep_memory_init(sensor_family_t * family) {
-    (void) family;
-    return SENSOR_ERROR;
-}
+#ifndef OpenBSD
+# warning "building file without OpenBSD defined"
+#endif
 
-void                sysdep_memory_destroy(sensor_family_t * family) {
-    (void) family;
-}
-
-sensor_status_t     sysdep_memory_get(sensor_family_t * family, memory_data_t *data) {
-    (void)family;
-    (void)data;
-    return SENSOR_ERROR;
-}
+/* ! USE sysdeps/network-darwin.c */
 

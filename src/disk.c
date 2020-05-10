@@ -78,5 +78,7 @@ const sensor_family_info_t g_sensor_family_disk = {
     .free = family_free,
     .update = family_update,
     .list = family_list,
+    .notify = NULL,
+    .write = NULL
 };
 

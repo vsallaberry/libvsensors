@@ -39,46 +39,68 @@
 #include <errno.h>
 
 #include "vlib/log.h"
+#include "vlib/job.h"
+#include "vlib/slist.h"
+
 #include "libvsensors/sensor.h"
 
 #include "smc.h"
 
 /* ************************************************************************ */
 sensor_status_t     sysdep_smc_support(sensor_family_t * family, const char * label);
-int                 sysdep_smc_open(void ** psmc_handle, log_t *log, unsigned int * maxsize);
-int                 sysdep_smc_close(void ** psmc_handle, log_t *log);
+int                 sysdep_smc_open(void ** psmc_handle, log_t *log,
+                                    unsigned int * bufsize, unsigned int * value_offset);
+int                 sysdep_smc_close(void * smc_handle, log_t *log);
 int                 sysdep_smc_readkey(
                         uint32_t        key,
                         uint32_t *      value_type,
-                        void *          value_bytes,
+                        void **         key_info,
+                        void *          output_buffer,
                         void *          smc_handle,
                         log_t *         log);
 int                 sysdep_smc_readindex(
                         uint32_t        index,
                         uint32_t *      value_key,
                         uint32_t *      value_type,
-                        void *          value_bytes,
+                        void **         key_info,
+                        void *          output_buffer,
                         void *          smc_handle,
                         log_t *         log);
-
-/* ************************************************************************ */
-static sensor_status_t  smc_getvalue(
-                            uint32_t            key,
-                            sensor_value_t *    value,
-                            sensor_family_t *   family);
-
-static sensor_status_t  smc_list(sensor_family_t * family);
-static void             smc_free_desc(void * data);
 
 /* ************************************************************************ */
 typedef struct {
     sensor_family_t *   family;
     void *              smc_handle;
     slist_t *           descs;
-    unsigned int        value_maxsize;
+    unsigned int        output_bufsz;
+    unsigned int        value_offset;
     slist_t *           free_list;
     char *              smc_buffer;
+    slist_t *           jobs;
 } smc_priv_t;
+
+typedef sensor_status_t (*smc_format_fun_t)(
+                                uint32_t type, uint32_t size,
+                                char * bytes, sensor_value_t * value,
+                                sensor_family_t * family);
+
+typedef struct {
+    uint32_t            value_key;
+    uint32_t            value_type;
+    uint32_t            value_size;
+    uint32_t            value_index;
+    smc_format_fun_t    format_fun;
+    void *              key_info;
+} smc_desc_key_t;
+
+/* ************************************************************************ */
+static sensor_status_t  smc_getsensorvalue(
+                            smc_desc_key_t *    key,
+                            sensor_value_t *    value,
+                            sensor_family_t *   family);
+
+static sensor_status_t  smc_list(sensor_family_t * family);
+static void             smc_free_desc(void * data);
 
 /* ************************************************************************ */
 static sensor_status_t smc_family_free(sensor_family_t *family) {
@@ -88,12 +110,18 @@ static sensor_status_t smc_family_free(sensor_family_t *family) {
     smc_priv_t *        priv = family->priv;
     sensor_status_t     result;
 
+    SLIST_FOREACH_DATA(priv->jobs, job, vjob_t *) {
+        vjob_killandfree(job);
+    }
+    slist_free(priv->jobs, NULL);
+
     if (sysdep_smc_close(priv->smc_handle, family->log) == 0) {
         result = SENSOR_SUCCESS;
     } else {
        LOG_ERROR(family->log, "SMCClose() failed!");
        result = SENSOR_ERROR;
     }
+
     slist_free(priv->descs, smc_free_desc);
     slist_free(priv->free_list, free);
     if (priv->smc_buffer != NULL) {
@@ -120,12 +148,13 @@ static sensor_status_t smc_family_init(sensor_family_t *family) {
     priv->free_list = NULL;
     priv->smc_handle = NULL;
     priv->descs = NULL;
-    if (sysdep_smc_open(&priv->smc_handle, family->log, &priv->value_maxsize) != SENSOR_SUCCESS) {
+    if (sysdep_smc_open(&priv->smc_handle, family->log,
+                        &(priv->output_bufsz), &(priv->value_offset)) != SENSOR_SUCCESS) {
        LOG_ERROR(family->log, "SMCOpen() failed!");
        smc_family_free(family);
        return SENSOR_ERROR;
     }
-    if ((priv->smc_buffer = malloc(priv->value_maxsize)) == NULL) {
+    if ((priv->smc_buffer = calloc(1, priv->output_bufsz)) == NULL) {
         LOG_ERROR(family->log, "malloc smc bytes buffer error: %s", strerror(errno));
         smc_family_free(family);
         return SENSOR_ERROR;
@@ -134,41 +163,101 @@ static sensor_status_t smc_family_init(sensor_family_t *family) {
 }
 
 /* ************************************************************************ */
-static slist_t * smc_family_list(sensor_family_t *family) {
-    if (family != NULL && family->priv != NULL) {
-        smc_priv_t *    priv = (smc_priv_t *) family->priv;
-        slist_t *       list = NULL;
+static void * smc_list_job(void * vdata) {
+    sensor_family_t *  family = (sensor_family_t *) vdata;
+    sensor_status_t ret;
+    int             old_ena, old_asy;
 
-        if (smc_list(family) != SENSOR_SUCCESS) {
-            return NULL;
-        }
+    /* disable vjob_kill without vjob_testkill */
+    vjob_killmode(0, 0, &old_ena, &old_asy);
 
-        SLIST_FOREACH_DATA(priv->descs, desc, sensor_desc_t *) {
-            list = slist_prepend(list, desc);
-        }
-        LOG_DEBUG(family->log, "%s(): list length = %u", __func__, slist_length(list));
+    /* do it */
+    ret = smc_list(family);
 
-        return list;
-    } else {
-       LOG_ERROR(family->log, "smc_list() failed!");
-       return NULL;
+    /* restore killmode */
+    vjob_killmode(old_ena, old_asy, NULL, NULL);
+
+    if (ret == SENSOR_SUCCESS) {
+        return (void*)0;
     }
+    return VJOB_ERR_RESULT;
+}
+
+static slist_t * smc_family_list(sensor_family_t *family) {
+    smc_priv_t *    priv = (smc_priv_t *) family->priv;
+    slist_t *       list = NULL, * last = NULL;
+
+    if (priv->descs == NULL || priv->jobs != NULL) {
+        if (priv->jobs == NULL) {
+            priv->jobs = slist_prepend(priv->jobs, vjob_run(smc_list_job, family));
+            if (priv->jobs == NULL || priv->jobs->data == NULL) {
+                LOG_WARN(family->log, "cannot run listing job");
+                priv->jobs = slist_remove_ptr(priv->jobs, priv->jobs->data);
+                return NULL;
+            }
+        }
+        return sensor_family_loading_list(family);
+    }
+
+    SLIST_FOREACH_DATA(priv->descs, desc, sensor_desc_t *) {
+        last = slist_append(last, desc);
+        if (list == NULL)
+            list = last;
+        else if (last != NULL)
+            last = last->next;
+    }
+    LOG_DEBUG(family->log, "%s(): list length = %u", __func__, slist_length(list));
+
+    return list;
 }
 
 /* ************************************************************************ */
 static sensor_status_t smc_family_update(sensor_sample_t *sensor, const struct timeval * now) {
     (void)now;
-    return (smc_getvalue((uint32_t)((unsigned long)(sensor->desc->key)),
-                         &(sensor->value), sensor->desc->family));
+    return (smc_getsensorvalue((smc_desc_key_t *) sensor->desc->key,
+                               &(sensor->value), sensor->desc->family));
 }
 
 /* ************************************************************************ */
+extern const sensor_family_info_t g_sensor_family_smc_loaded;
+static sensor_status_t smc_family_loading_update(sensor_sample_t *sensor, const struct timeval * now) {
+    smc_priv_t * priv = (smc_priv_t *) sensor->desc->family->priv;
+    (void)now;
+    if (priv->jobs != NULL) {
+        if (vjob_done(priv->jobs->data)) {
+            slist_t * to_free = priv->jobs;
+            priv->jobs = priv->jobs->next;
+            vjob_free(to_free->data);
+            slist_free_1(to_free, NULL);
+            sensor->desc->family->info = &g_sensor_family_smc_loaded;
+            LOG_VERBOSE(sensor->desc->family->log, "RELOAD_FAMILY");
+            return SENSOR_RELOAD_FAMILY;
+        } else {
+            return SENSOR_LOADING;
+        }
+    }
+    return SENSOR_ERROR;
+}
+
+/* ************************************************************************ */
+#define SMC_FAMILY_NAME "smc"
 const sensor_family_info_t g_sensor_family_smc = {
-    .name = "smc",
+    .name = SMC_FAMILY_NAME,
+    .init = smc_family_init,
+    .free = smc_family_free,
+    .update = smc_family_loading_update,
+    .list = smc_family_list,
+    .notify = NULL,
+    .write = NULL
+};
+const sensor_family_info_t g_sensor_family_smc_loaded = {
+    .name = SMC_FAMILY_NAME,
     .init = smc_family_init,
     .free = smc_family_free,
     .update = smc_family_update,
     .list = smc_family_list,
+    .notify = NULL,
+    .write = NULL
 };
 
 /* ************************************************************************************* */
@@ -207,13 +296,26 @@ const sensor_family_info_t g_sensor_family_smc = {
 
 #define DATATYPE_PWM        SMC_TYPE("{pwm")
 
+#define DATATYPE_FP00       SMC_TYPE("fp00")
 #define DATATYPE_FP2E       SMC_TYPE("fp2e")
 #define DATATYPE_FP3D       SMC_TYPE("fp3d")
+#define DATATYPE_FP97       SMC_TYPE("fp97")
+#define DATATYPE_FPB5       SMC_TYPE("fpb5")
+#define DATATYPE_FPD3       SMC_TYPE("fpd3")
+#define DATATYPE_FPF1       SMC_TYPE("fpf1")
+#define DATATYPE_SP0F       SMC_TYPE("sp0f")
+#define DATATYPE_SP2D       SMC_TYPE("sp2d")
+#define DATATYPE_SPA5       SMC_TYPE("spa5")
+#define DATATYPE_SPC3       SMC_TYPE("spc3")
+#define DATATYPE_SPD2       SMC_TYPE("spd2")
+#define DATATYPE_SPE1       SMC_TYPE("spe1")
 
 #define DATATYPE_UI8_       SMC_TYPE("ui8")
 #define DATATYPE_SI8_       SMC_TYPE("si8")
 #define DATATYPE_FLAG       SMC_TYPE("flag")
 #define DATATYPE_CHAR       SMC_TYPE("char")
+
+#define DATATYPE_PCH8       SMC_TYPE("ch8*")
 
 /* ************************************************************************ */
 typedef struct {
@@ -225,7 +327,14 @@ typedef struct {
 #define SMC_TYPE2(str) (str)    // TODO
 /* Smc sensors list is built dynamically (see smc_list()),
  * this is just to get description of known sensors */
-static const smc_sensor_info_t s_smc_sensors[] = {
+static const smc_sensor_info_t s_smc_known_sensors[] = {
+    /* BCTP = 1 on battery ? = 0, on AC ? */
+    { SMC_TYPE2("BNum"), "Battery number", "%d" },
+    { SMC_TYPE2("B0CT"), "Battery cycles", "%d" },
+    { SMC_TYPE2("B0AC"), "Battery current (mA)", "%d" },
+    { SMC_TYPE2("B0AV"), "Battery tension (mV)", "%d" },
+    { SMC_TYPE2("B0FC"), "Battery Full capacity (mAh)", "%d" },
+    { SMC_TYPE2("B0RM"), "Battery capacity (mAh)", "%d" },
     { SMC_TYPE2("FNum"), "Fan number", "%d" },
     { SMC_TYPE2("F0Ac"), "Fan0 CPU/RAM (rpm)", "%d" },
     { SMC_TYPE2("F0Tg"), "Fan0 target (rpm)", "%d" },
@@ -245,15 +354,17 @@ static const smc_sensor_info_t s_smc_sensors[] = {
     { SMC_TYPE2("F3Mx"), "Fan3 max (rpm)", "%d" },
     { SMC_TYPE2("FS! "), "Fan speed mode", "%d" },
     { SMC_TYPE2("IB0R"), "I Battery Rail", "%d" },
-    { SMC_TYPE2("IC0C"), "I CPU Core", "%d" },
-    { SMC_TYPE2("IC0G"), "I CPU GFX", "%d" },
-    { SMC_TYPE2("IC0M"), "I CPU Memory", "%d" },
-    { SMC_TYPE2("IC0R"), "I CPU Rail", "%d" },
-    { SMC_TYPE2("IC1C"), "I CPU VccIO", "%d" },
-    { SMC_TYPE2("IC2C"), "I CPU VccSA", "%d" },
+    { SMC_TYPE2("IC0C"), "I CPU Core 1", "%d" },
+    { SMC_TYPE2("IC0G"), "I CPU GFX 1", "%d" },
+    { SMC_TYPE2("IC0M"), "I CPU Memory 1", "%d" },
+    { SMC_TYPE2("IC0R"), "I CPU 1 Rail", "%d" },
+    { SMC_TYPE2("IC1R"), "I CPU 2 Rail", "%d" },
+    { SMC_TYPE2("IC1C"), "I CPU Core 2 (VccIO)", "%d" },
+    { SMC_TYPE2("IC2C"), "I CPU Core 3 (VccSA)", "%d" },
     { SMC_TYPE2("IC5R"), "I CPU DRAM", "%d" },
     { SMC_TYPE2("IC8R"), "I CPU PLL", "%d" },
     { SMC_TYPE2("ID0R"), "I Mainboard S0 Rail", "%d" },
+    { SMC_TYPE2("ID1R"), "I Mainboard S1 Rail", "%d" },
     { SMC_TYPE2("ID5R"), "I Mainboard S5 Rail", "%d" },
     { SMC_TYPE2("IG0C"), "I GPU Rail", "%d" },
     { SMC_TYPE2("IM0C"), "I Memory Controller", "%d" },
@@ -263,15 +374,18 @@ static const smc_sensor_info_t s_smc_sensors[] = {
     { SMC_TYPE2("IPBR"), "I Charger BMON", "%d" },
     { SMC_TYPE2("PB0R"), "W Battery Rail", "%d" },
     { SMC_TYPE2("PBLC"), "W Battery Rail", "%d" },
+    { SMC_TYPE2("PC0R"), "W CPU S0 Rail", "%d" },
+    { SMC_TYPE2("PC1R"), "W CPU S1 Rail", "%d" },
+    { SMC_TYPE2("PC2R"), "W CPU S2 Rail", "%d" },
+    { SMC_TYPE2("PC3R"), "W CPU S3 Rail", "%d" },
+    { SMC_TYPE2("PC4R"), "W CPU S4 Rail", "%d" },
+    { SMC_TYPE2("PC5R"), "W CPU S5 Rail", "%d" },
     { SMC_TYPE2("PC0C"), "W CPU Core 1", "%d" },
-    { SMC_TYPE2("PC0R"), "W Mainboard S0 Rail", "%d" },
     { SMC_TYPE2("PC1C"), "W CPU Core 2", "%d" },
-    { SMC_TYPE2("PC1R"), "W CPU Rail", "%d" },
     { SMC_TYPE2("PC2C"), "W CPU Core 3", "%d" },
     { SMC_TYPE2("PC3C"), "W CPU Core 4", "%d" },
     { SMC_TYPE2("PC4C"), "W CPU Core 5", "%d" },
     { SMC_TYPE2("PC5C"), "W CPU Core 6", "%d" },
-    { SMC_TYPE2("PC5R"), "W CPU S0 Rail", "%d" },
     { SMC_TYPE2("PC6C"), "W CPU Core 7", "%d" },
     { SMC_TYPE2("PC7C"), "W CPU Core 8", "%d" },
     { SMC_TYPE2("PCPC"), "W CPU Cores", "%d" },
@@ -280,7 +394,8 @@ static const smc_sensor_info_t s_smc_sensors[] = {
     { SMC_TYPE2("PCPL"), "W CPU Total", "%d" },
     { SMC_TYPE2("PCTR"), "W CPU Total", "%d" },
     { SMC_TYPE2("PD0R"), "W Mainboard S0 Rail", "%d" },
-    { SMC_TYPE2("PD2R"), "W Main 12V Rail", "%d" },
+    { SMC_TYPE2("PD1R"), "W Mainboard S1 Rail", "%d" },
+    { SMC_TYPE2("PD2R"), "W Mainboard 12V Rail", "%d" },
     { SMC_TYPE2("PD5R"), "W Mainboard S5 Rail", "%d" },
     { SMC_TYPE2("PDTR"), "W DC In Total", "%d" },
     { SMC_TYPE2("PG0R"), "W GPU Rail", "%d" },
@@ -305,14 +420,14 @@ static const smc_sensor_info_t s_smc_sensors[] = {
     { SMC_TYPE2("TB3T"), "Temp Battery", "%d" },
     { SMC_TYPE2("TC0C"), "Temp CPU A Core 1", "%d" },
     { SMC_TYPE2("TC0D"), "Temp CPU 1 Package", "%d" },
-    { SMC_TYPE2("TC0E"), "Temp CPU 1", "%d" },
-    { SMC_TYPE2("TC0F"), "Temp CPU 1", "%d" },
+    { SMC_TYPE2("TC0E"), "Temp CPU 1 E", "%d" },
+    { SMC_TYPE2("TC0F"), "Temp CPU 1 F", "%d" },
     { SMC_TYPE2("TC0H"), "Temp CPU 1 Heatsink", "%d" },
     { SMC_TYPE2("TC0P"), "Temp CPU 1 Proximity", "%d" },
     { SMC_TYPE2("TC1C"), "Temp CPU A Core 2", "%d" },
     { SMC_TYPE2("TC1D"), "Temp CPU 2 Package", "%d" },
-    { SMC_TYPE2("TC1E"), "Temp CPU 2", "%d" },
-    { SMC_TYPE2("TC1F"), "Temp CPU 2", "%d" },
+    { SMC_TYPE2("TC1E"), "Temp CPU 2 E", "%d" },
+    { SMC_TYPE2("TC1F"), "Temp CPU 2 F", "%d" },
     { SMC_TYPE2("TC1H"), "Temp CPU 2 Heatsink", "%d" },
     { SMC_TYPE2("TC1P"), "Temp CPU 2 Proximity", "%d" },
     { SMC_TYPE2("TC2C"), "Temp CPU B Core 1", "%d" },
@@ -445,20 +560,350 @@ static unsigned int _ultostr32(char * str32, unsigned int maxsize,
 }
 
 /* ************************************************************************ */
+#define SMC_DEFINE_FORMAT_FUN(_TYPE_SUF, _VALUE_EXPR)                       \
+static sensor_status_t smc_format##_TYPE_SUF(                               \
+                            uint32_t type,                                  \
+                            uint32_t size,                                  \
+                            char * bytes,                                   \
+                            sensor_value_t * value,                         \
+                            sensor_family_t * family) {                     \
+    (void)size;                                                             \
+    (void)type;                                                             \
+    (void)family;                                                           \
+    SENSOR_VALUE_TYPE_X(SMC_SV_TYPE##_TYPE_SUF) newvalue = (_VALUE_EXPR);   \
+    if (newvalue == SENSOR_VALUEP_GET(value, SMC_SV_TYPE##_TYPE_SUF))       \
+        return SENSOR_UNCHANGED;                                            \
+    SENSOR_VALUEP_GET(value, SMC_SV_TYPE##_TYPE_SUF) = newvalue;            \
+    return SENSOR_UPDATED;                                                  \
+}
+
+/* from what i guessed:
+ * DATATYPE = IDxy
+ *
+ * ID| Desc           | x     | y:                   | Result
+ * --|----------------|-------|----------------------|--------------------------
+ * FP| unsigned float,| ?,    | bit shift for divisor| ((uint16_t)V)/(1<< y)
+ * FP| signed float,  | ?,    | bit shift for divisor| ((int16_t)V)/(1<< y)
+ *   |                |       |                      |
+ *   |                |       |                      |
+ */
+#define SMC_SV_TYPE_FP1F    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FP1F, (ntohs(*((uint16_t *) bytes)) / 32768.0))
+
+/* FP2E guessed conversion from name and retro-engineering with P=UI */
+#define SMC_SV_TYPE_FP2E    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FP2E, ntohs(*((uint16_t *) bytes)) / 16384.0)
+
+/* FP3D guessed conversion from name and from retro-engineering with P=UI */
+#define SMC_SV_TYPE_FP3D    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FP3D, ntohs(*((uint16_t *) bytes)) / 8192.0)
+
+#define SMC_SV_TYPE_FP4C    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FP4C, ntohs(*((uint16_t *) bytes)) / 4096.0)
+
+#define SMC_SV_TYPE_FP5B    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FP5B, ntohs(*((uint16_t *) bytes)) / 2048.0)
+
+#define SMC_SV_TYPE_FP6A    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FP6A, ntohs(*((uint16_t *) bytes)) / 1024.0)
+
+#define SMC_SV_TYPE_FP79    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FP79, ntohs(*((uint16_t *) bytes)) / 512.0)
+
+#define SMC_SV_TYPE_FP88    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FP88, ntohs(*((uint16_t *) bytes)) / 256.0)
+
+/* FP97 guessed from name */
+#define SMC_SV_TYPE_FP97    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FP97, ntohs(*((uint16_t *) bytes)) / 128.0)
+
+#define SMC_SV_TYPE_FPA6    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FPA6, ntohs(*((uint16_t *) bytes)) / 64.0)
+
+/* FPB5 guessed from name */
+#define SMC_SV_TYPE_FPB5    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FPB5, ntohs(*((uint16_t *) bytes)) / 32.0)
+
+#define SMC_SV_TYPE_FPC4    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FPC4, ntohs(*((uint16_t *) bytes)) / 16.0)
+
+/* FPD3 guessed from name */
+#define SMC_SV_TYPE_FPD3    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FPD3, ntohs(*((uint16_t *) bytes)) / 8.0)
+
+#define SMC_SV_TYPE_FPE2    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FPE2, ntohs(*((uint16_t *) bytes)) / 4.0)
+
+/* FPF1 guessed from name */
+#define SMC_SV_TYPE_FPF1    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FPF1, ntohs(*((uint16_t *) bytes)) / 2.0)
+
+/* FP00 NOT sure, guessed from name */
+#define SMC_SV_TYPE_FP00    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_FP00, ntohs(*((uint16_t *) bytes)))
+
+#define SMC_SV_TYPE_UI8     SENSOR_VALUE_UCHAR
+SMC_DEFINE_FORMAT_FUN(_UI8, *((unsigned char *) bytes))
+
+#define SMC_SV_TYPE_UI16    SENSOR_VALUE_UINT16
+SMC_DEFINE_FORMAT_FUN(_UI16, (uint16_t) ntohs(*((uint16_t *) bytes)))
+
+#define SMC_SV_TYPE_UI32    SENSOR_VALUE_UINT32
+SMC_DEFINE_FORMAT_FUN(_UI32, (unsigned int) _str32toul((char *)(bytes), size, 10))
+
+/* SP0F guessed from name */
+#define SMC_SV_TYPE_SP0F    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SP0F, ((int16_t) ntohs(*((uint16_t *) bytes))) / 32768.0)
+
+#define SMC_SV_TYPE_SP1E    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SP1E, ((int16_t) ntohs(*((uint16_t *) bytes))) / 16384.0)
+
+/* SP2D guessed from name */
+#define SMC_SV_TYPE_SP2D    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SP2D, ((int16_t) ntohs(*((uint16_t *) bytes))) / 8192.0)
+
+#define SMC_SV_TYPE_SP3C    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SP3C, ((int16_t) ntohs(*((uint16_t *) bytes))) / 4096.0)
+
+#define SMC_SV_TYPE_SP4B    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SP4B, ((int16_t) ntohs(*((uint16_t *) bytes))) / 2048.0)
+
+#define SMC_SV_TYPE_SP5A    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SP5A, ((int16_t) ntohs(*((uint16_t *) bytes))) / 1024.0)
+
+#define SMC_SV_TYPE_SP69    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SP69, ((int16_t) ntohs(*((uint16_t *) bytes))) / 512.0)
+
+#define SMC_SV_TYPE_SP78    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SP78, ((int16_t) ntohs(*((uint16_t *) bytes))) / 256.0)
+
+#define SMC_SV_TYPE_SP87    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SP87, ((int16_t) ntohs(*((uint16_t *) bytes))) / 128.0)
+
+#define SMC_SV_TYPE_SP96    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SP96, ((int16_t) ntohs(*((uint16_t *) bytes))) / 64.0)
+
+/* SPA5 guessed */
+#define SMC_SV_TYPE_SPA5    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SPA5, ((int16_t) ntohs(*((uint16_t *) bytes))) / 32.0)
+
+#define SMC_SV_TYPE_SPB4    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SPB4, ((int16_t) ntohs(*((uint16_t *) bytes))) / 16.0)
+
+/* SPC3 guessed */
+#define SMC_SV_TYPE_SPC3    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SPC3, ((int16_t) ntohs(*((uint16_t *) bytes))) / 8.0)
+
+/* SPD2 guessed */
+#define SMC_SV_TYPE_SPD2    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SPD2, ((int16_t) ntohs(*((uint16_t *) bytes))) / 4.0)
+
+/* SPE1 guessed */
+#define SMC_SV_TYPE_SPE1    SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_SPE1, ((int16_t) ntohs(*((uint16_t *) bytes))) / 2.0)
+
+#define SMC_SV_TYPE_SPF0    SENSOR_VALUE_INT16
+SMC_DEFINE_FORMAT_FUN(_SPF0, (int16_t) ntohs(*((uint16_t *) bytes)))
+
+#define SMC_SV_TYPE_SI8     SENSOR_VALUE_CHAR
+SMC_DEFINE_FORMAT_FUN(_SI8, (char) (*bytes))
+
+#define SMC_SV_TYPE_SI16    SENSOR_VALUE_INT16
+SMC_DEFINE_FORMAT_FUN(_SI16, (int16_t) ntohs(*((uint16_t *) bytes)))
+
+#define SMC_SV_TYPE_SI32   SENSOR_VALUE_INT32
+SMC_DEFINE_FORMAT_FUN(_SI32, (int32_t) _str32toul((char *)(bytes), size, 10))
+
+#define SMC_SV_TYPE_FLAG    SENSOR_VALUE_UCHAR
+SMC_DEFINE_FORMAT_FUN(_FLAG, (unsigned char)*(bytes))
+
+#define SMC_SV_TYPE_PWM     SENSOR_VALUE_FLOAT
+SMC_DEFINE_FORMAT_FUN(_PWM, ntohs(*((uint16_t *)bytes)) * 100 / 65536.0)
+
+#define SMC_SV_TYPE_BYTES   SENSOR_VALUE_BYTES
+static sensor_status_t smc_format_bytes(uint32_t type, uint32_t size, char * bytes,
+                     sensor_value_t * value, sensor_family_t * family) {
+    (void)family;
+    (void)type;
+    value->data.b.size = size;
+    return sensor_value_frombuffer(bytes, size, value);
+}
+
+/*} else if (value_type == DATATYPE_PCH8) {
+//TODO
+SENSOR_VALUE_INIT_BUF(*value, SENSOR_VALUE_STRING, value_bytes, value_size);*/
+
+static smc_format_fun_t smc_getformatfun(uint32_t value_type, uint32_t value_size,
+                                         sensor_value_t * value, sensor_family_t * family) {
+    (void)family;
+
+    if (value_size == 2 && value_type == DATATYPE_FP00) {
+        value->type = SMC_SV_TYPE_FP00;
+        return smc_format_FP00;
+    } else if (value_size == 2 && value_type == DATATYPE_FP1F) {
+        value->type = SMC_SV_TYPE_FP1F;
+        return smc_format_FP1F;
+    } else if (value_size == 2 && value_type == DATATYPE_FP2E) {
+        value->type = SMC_SV_TYPE_FP2E;
+        return smc_format_FP2E;
+    } else if (value_size == 2 && value_type == DATATYPE_FP3D) {
+        value->type = SMC_SV_TYPE_FP3D;
+        return smc_format_FP3D;
+    } else if (value_size == 2 && value_type == DATATYPE_FP4C) {
+        value->type = SMC_SV_TYPE_FP4C;
+        return smc_format_FP4C;
+    } else if (value_size == 2 && value_type == DATATYPE_FP5B) {
+        value->type = SMC_SV_TYPE_FP5B;
+        return smc_format_FP5B;
+    } else if (value_size == 2 && value_type == DATATYPE_FP6A) {
+        value->type = SMC_SV_TYPE_FP6A;
+        return smc_format_FP6A;
+    } else if (value_size == 2 && value_type == DATATYPE_FP79) {
+        value->type = SMC_SV_TYPE_FP79;
+        return smc_format_FP79;
+    } else if (value_size == 2 && value_type == DATATYPE_FP88) {
+        value->type = SMC_SV_TYPE_FP88;
+        return smc_format_FP88;
+    } else if (value_size == 2 && value_type == DATATYPE_FP97) {
+        value->type = SMC_SV_TYPE_FP97;
+        return smc_format_FP97;
+    } else if (value_size == 2 && value_type == DATATYPE_FPA6) {
+        value->type = SMC_SV_TYPE_FPA6;
+        return smc_format_FPA6;
+    } else if (value_size == 2 && value_type == DATATYPE_FPB5) {
+        value->type = SMC_SV_TYPE_FPB5;
+        return smc_format_FPB5;
+    } else if (value_size == 2 && value_type == DATATYPE_FPC4) {
+        value->type = SMC_SV_TYPE_FPC4;
+        return smc_format_FPC4;
+    } else if (value_size == 2 && value_type == DATATYPE_FPD3) {
+        value->type = SMC_SV_TYPE_FPD3;
+        return smc_format_FPD3;
+    } else if (value_size == 2 && value_type == DATATYPE_FPE2) {
+        value->type = SMC_SV_TYPE_FPE2;
+        return smc_format_FPE2;
+    } else if (value_size == 2 && value_type == DATATYPE_FPF1) {
+        value->type = SMC_SV_TYPE_FPF1;
+        return smc_format_FPF1;
+    } else if (value_size == 1
+               && (value_type == DATATYPE_UI8 || value_type == DATATYPE_UI8_)) {
+        value->type = SMC_SV_TYPE_UI8;
+        return smc_format_UI8;
+    } else if (value_size == 2 && value_type == DATATYPE_UI16) {
+        value->type = SMC_SV_TYPE_UI16;
+        return smc_format_UI16;
+    } else if (value_size == 4 && value_type == DATATYPE_UI32) {
+        value->type = SMC_SV_TYPE_UI32;
+        return smc_format_UI32;
+    } else if (value_size == 2 && value_type == DATATYPE_SP0F) {
+        value->type = SMC_SV_TYPE_SP0F;
+        return smc_format_SP0F;
+    } else if (value_size == 2 && value_type == DATATYPE_SP1E) {
+        value->type = SMC_SV_TYPE_SP1E;
+        return smc_format_SP1E;
+    } else if (value_size == 2 && value_type == DATATYPE_SP2D) {
+        value->type = SMC_SV_TYPE_SP2D;
+        return smc_format_SP2D;
+    } else if (value_size == 2 && value_type == DATATYPE_SP3C) {
+        value->type = SMC_SV_TYPE_SP3C;
+        return smc_format_SP3C;
+    } else if (value_size == 2 && value_type == DATATYPE_SP4B) {
+        value->type = SMC_SV_TYPE_SP4B;
+        return smc_format_SP4B;
+    } else if (value_size == 2 && value_type == DATATYPE_SP5A) {
+        value->type = SMC_SV_TYPE_SP5A;
+        return smc_format_SP5A;
+    } else if (value_size == 2 && value_type == DATATYPE_SP69) {
+        value->type = SMC_SV_TYPE_SP69;
+        return smc_format_SP69;
+    } else if (value_size == 2 && value_type == DATATYPE_SP78) {
+        value->type = SMC_SV_TYPE_SP78;
+        return smc_format_SP78;
+    } else if (value_size == 2 && value_type == DATATYPE_SP87) {
+        value->type = SMC_SV_TYPE_SP87;
+        return smc_format_SP87;
+    } else if (value_size == 2 && value_type == DATATYPE_SP96) {
+        value->type = SMC_SV_TYPE_SP96;
+        return smc_format_SP96;
+    } else if (value_size == 2 && value_type == DATATYPE_SPA5) {
+        value->type = SMC_SV_TYPE_SPA5;
+        return smc_format_SPA5;
+    } else if (value_size == 2 && value_type == DATATYPE_SPB4) {
+        value->type = SMC_SV_TYPE_SPB4;
+        return smc_format_SPB4;
+    } else if (value_size == 2 && value_type == DATATYPE_SPC3) {
+        value->type = SMC_SV_TYPE_SPC3;
+        return smc_format_SPC3;
+    } else if (value_size == 2 && value_type == DATATYPE_SPD2) {
+        value->type = SMC_SV_TYPE_SPD2;
+        return smc_format_SPD2;
+     } else if (value_size == 2 && value_type == DATATYPE_SPE1) {
+        value->type = SMC_SV_TYPE_SPE1;
+        return smc_format_SPE1;
+    } else if (value_size == 2 && value_type == DATATYPE_SPF0) {
+        value->type = SMC_SV_TYPE_SPF0;
+        return smc_format_SPF0;
+    } else if (value_size == 1 && (value_type == DATATYPE_SI8
+                || value_type == DATATYPE_SI8_ || value_type == DATATYPE_CHAR)) {
+        value->type = SMC_SV_TYPE_SI8;
+        return smc_format_SI8;
+    } else if (value_size == 2 && value_type == DATATYPE_SI16) {
+        value->type = SMC_SV_TYPE_SI16;
+        return smc_format_SI16;
+    } else if (value_size == 4 && value_type == DATATYPE_SI32) {
+        value->type = SMC_SV_TYPE_SI32;
+        return smc_format_SI32;
+    } else if (value_size == 1 && value_type == DATATYPE_FLAG) {
+        value->type = SMC_SV_TYPE_FLAG;
+        return smc_format_FLAG;
+    } else if (value_size == 2 && value_type == DATATYPE_PWM) {
+        value->type = SMC_SV_TYPE_PWM;
+        return smc_format_PWM;
+    /*} else if (value_type == DATATYPE_PCH8) {
+        //TODO
+        SENSOR_VALUE_INIT_BUF(*value, SENSOR_VALUE_STRING, value_bytes, value_size);*/
+    } else {
+        #ifdef _DEBUG
+        if (value_type != DATATYPE_PCH8) {
+            char stype[5];
+            _ultostr32(stype, sizeof(stype) / sizeof(*stype), value_type, sizeof(value_type));
+            LOG_DEBUG(family->log, "warning: datatype '%s' not supported, using bytes", stype);
+        }
+        #endif
+        value->data.b.size = 0;
+        if (SENSOR_VALUE_IS_BUFFER(value->type) && value->data.b.buf != NULL) {
+            if ((value->data.b.buf = realloc(value->data.b.buf, value_size * 2)) == NULL) {
+                value->data.b.maxsize = 0;
+            } else {
+                value->data.b.maxsize = value_size * 2;
+                memset(value->data.b.buf, 0xff, value->data.b.maxsize);
+            }
+        } else {
+            value->data.b.buf = NULL;
+            value->data.b.maxsize = 0;
+        }
+        value->type = SMC_SV_TYPE_BYTES;
+        return smc_format_bytes;
+    }
+}
+
 static sensor_status_t smc_getvalue(
                             uint32_t            key,
                             sensor_value_t *    value,
                             sensor_family_t *   family)
 {
-    smc_priv_t *    priv = (smc_priv_t *) family->priv;
-    uint32_t        value_type;
-    int             value_size;
-    char *          value_bytes = priv->smc_buffer;
+    smc_priv_t *        priv = (smc_priv_t *) family->priv;
+    uint32_t            value_type;
+    int                 value_size;
+    char *              value_bytes = priv->smc_buffer + priv->value_offset;
+    smc_format_fun_t    format_fun;
 
-    value_size = sysdep_smc_readkey(key, &value_type, value_bytes, priv->smc_handle, family->log);
+    value_size = sysdep_smc_readkey(key, &value_type, NULL, priv->smc_buffer,
+                                    priv->smc_handle, family->log);
 
     if (value_size < 0) {
-        LOG_ERROR(family->log, "cannot read SMC key '%08x'", key);
+        LOG_ERROR(family->log, "cannot read SMC key '%08x' (bytes:%lx)",
+                  key, (unsigned long) value_bytes);
         return SENSOR_ERROR;
     } else if (value_size == 0) {
         LOG_WARN(family->log, "SMC key '%08x': length <= 0", key);
@@ -466,109 +911,37 @@ static sensor_status_t smc_getvalue(
     }
 
     /* smc read ok, check value and format it */
-    if (value_size == 2 && value_type == DATATYPE_FP1F) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ntohs(*((uint16_t *) value_bytes)) / 32768.0);
-    } else if (value_size == 2 && value_type == DATATYPE_FP4C) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ntohs(*((uint16_t *) value_bytes)) / 4096.0);
-    } else if (value_size == 2 && value_type == DATATYPE_FP5B) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ntohs(*((uint16_t *) value_bytes)) / 2048.0);
-    } else if (value_size == 2 && value_type == DATATYPE_FP6A) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ntohs(*((uint16_t *) value_bytes)) / 1024.0);
-    } else if (value_size == 2 && value_type == DATATYPE_FP79) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ntohs(*((uint16_t *) value_bytes)) / 512.0);
-    } else if (value_size == 2 && value_type == DATATYPE_FP88) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ntohs(*((uint16_t *) value_bytes)) / 256.0);
-    } else if (value_size == 2 && value_type == DATATYPE_FPA6) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ntohs(*((uint16_t *) value_bytes)) / 64.0);
-    } else if (value_size == 2 && value_type == DATATYPE_FPC4) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ntohs(*((uint16_t *) value_bytes)) / 16.0);
-    } else if (value_size == 2 && value_type == DATATYPE_FPE2) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ntohs(*((uint16_t *) value_bytes)) / 4.0);
-    } else if (value_size > 0 && value_size <= 4
-    && (value_type == DATATYPE_UI8 || value_type == DATATYPE_UI8_
-        || value_type == DATATYPE_UI16 || value_type == DATATYPE_UI32)) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_UINT,
-                (unsigned int) _str32toul((char *)(value_bytes), value_size, 10));
-    } else if (value_size == 2 && value_type == DATATYPE_SP1E) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ((int16_t) ntohs(*((uint16_t *) value_bytes))) / 16384.0);
-    } else if (value_size == 2 && value_type == DATATYPE_SP3C) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ((int16_t) ntohs(*((uint16_t *) value_bytes))) / 4096.0);
-    } else if (value_size == 2 && value_type == DATATYPE_SP4B) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ((int16_t) ntohs(*((uint16_t *) value_bytes))) / 2048.0);
-    } else if (value_size == 2 && value_type == DATATYPE_SP5A) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ((int16_t) ntohs(*((uint16_t *) value_bytes))) / 1024.0);
-    } else if (value_size == 2 && value_type == DATATYPE_SP69) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ((int16_t) ntohs(*((uint16_t *) value_bytes))) / 512.0);
-    } else if (value_size == 2 && value_type == DATATYPE_SP78) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ((int16_t) ntohs(*((uint16_t *) value_bytes))) / 256.0);
-    } else if (value_size == 2 && value_type == DATATYPE_SP87) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ((int16_t) ntohs(*((uint16_t *) value_bytes))) / 128.0);
-    } else if (value_size == 2 && value_type == DATATYPE_SP96) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ((int16_t) ntohs(*((uint16_t *) value_bytes))) / 64.0);
-    } else if (value_size == 2 && value_type == DATATYPE_SPB4) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ((int16_t) ntohs(*((uint16_t *) value_bytes))) / 16.0);
-    } else if (value_size == 2 && value_type == DATATYPE_SPF0) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_INT,
-                (int16_t) ntohs(*((uint16_t *) value_bytes)));
-    } else if (value_size > 0 && value_size <= 4
-    && (value_type == DATATYPE_SI8 || value_type == DATATYPE_SI8_ || value_type == DATATYPE_CHAR
-        || value_type == DATATYPE_SI16 || value_type == DATATYPE_SI32)) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_INT,
-                (int) _str32toul((char *)(value_bytes), value_size, 10));
-    } else if (value_size == 1 && value_type == DATATYPE_FLAG) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_UCHAR, (unsigned char)*(value_bytes));
-    } else if (value_size == 2 && value_type == DATATYPE_PWM) {
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ntohs(*((uint16_t *)value_bytes)) * 100 / 65536.0);
-    /*} else if (value_type == DATATYPE_PCH8) {
-        //TODO
-        SENSOR_VALUE_INIT_BUF(*value, SENSOR_VALUE_STRING, value_bytes, value_size);*/
-    /*} else if (value_type == DATATYPE_FP2E) {
-        // TODO
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ntohs(*((uint16_t *) value_bytes)) / 4.0); */
-    /*} else if (value_type == DATATYPE_FP3D) {
-        // TODO
-        SENSOR_VALUE_INIT(*value, SENSOR_VALUE_DOUBLE,
-                ntohs(*((uint16_t *) value_bytes)) / 4.0); */
-    } else {
-        /* TODO expand BYTES buffer ? */
-        if (value->type == SENSOR_VALUE_NULL) {
-            if ((value->data.b.buf = malloc(value_size * 2)) == NULL) {
-                return SENSOR_ERROR;
-            }
-            priv->free_list = slist_prepend(priv->free_list, value->data.b.buf);
-            value->data.b.maxsize = value_size * 2;
-            value->type = SENSOR_VALUE_BYTES;
-        } else if (value->type != SENSOR_VALUE_BYTES) {
-            return SENSOR_ERROR;
-        }
-        value->data.b.size = value_size;
-        if (sensor_value_fromraw(value_bytes, value) != SENSOR_SUCCESS) {
-            return SENSOR_ERROR;
-        }
+    if ((format_fun = smc_getformatfun(value_type, value_size, value, family))
+                == NULL) {
+        return SENSOR_ERROR;
     }
 
-    return SENSOR_SUCCESS;
+    return format_fun(value_type, value_size, value_bytes, value, family);
 }
+
+static sensor_status_t smc_getsensorvalue(
+                            smc_desc_key_t *    key,
+                            sensor_value_t *    value,
+                            sensor_family_t *   family)
+{
+    smc_priv_t *    priv = (smc_priv_t *) family->priv;
+    unsigned int    value_size;
+    char *          value_bytes = priv->smc_buffer + priv->value_offset;
+
+    value_size = sysdep_smc_readkey(key->value_key, NULL, &(key->key_info),
+                                    priv->smc_buffer, priv->smc_handle, family->log);
+
+    if (value_size != key->value_size) {
+        LOG_VERBOSE(family->log, "cannot read SMC key '%08x' (bytes:%lx,key_info:%lx,sz:%u,refsz:%u",
+                 key->value_key, (unsigned long) value_bytes, (unsigned long)key->key_info,
+                 value_size, key->value_size);
+        return SENSOR_ERROR;
+    }
+
+    /* smc read ok, format value */
+    return key->format_fun(key->value_type, value_size, value_bytes, value, family);
+}
+
 
 /* ************************************************************************ */
 static void smc_free_desc(void * data) {
@@ -576,22 +949,42 @@ static void smc_free_desc(void * data) {
         sensor_desc_t * desc = data;
 
         if (desc->label != NULL) {
-            free(desc->label);
+            free((void*) (desc->label));
         }
+        if (desc->key != NULL) {
+            smc_desc_key_t * key = (smc_desc_key_t *) desc->key;
+            desc->key = NULL;
+            if (key->key_info != NULL) {
+                free(key->key_info);
+            }
+            free(key);
+        }
+        sensor_properties_free(desc->properties);
         free(desc);
     }
 }
 
 /* ************************************************************************ */
+enum {
+    SMC_PROP_TYPE = 0,
+    SMC_PROP_SIZE,
+    SMC_PROP_KEY,
+    SMC_PROP_INDEX,
+    SMC_PROP_NB /* must be last */
+};
+
+/* ************************************************************************ */
 static sensor_status_t smc_list(sensor_family_t * family) {
     sensor_status_t ret;
     smc_priv_t *    priv = (smc_priv_t *) family->priv;
+    slist_t *       last, * new;
     int             value_size;
     uint32_t        value_type;
     uint32_t        value_key;
     sensor_value_t  value;
     int             total_keys, i;
     sensor_desc_t * desc;
+    smc_desc_key_t* key;
 
     /* don't rebuild list */
     if (priv->descs != NULL) {
@@ -599,7 +992,11 @@ static sensor_status_t smc_list(sensor_family_t * family) {
     }
 
     /* Get Number of SMC Keys */
-    if ((ret = smc_getvalue(SMC_TYPE("#KEY"), &value, family)) != SENSOR_SUCCESS) {
+    memset(&value, 0, sizeof(value));
+    ret = smc_getvalue(SMC_TYPE("#KEY"), &value, family);
+
+    if (ret != SENSOR_SUCCESS && ret != SENSOR_UPDATED
+    &&  ret != SENSOR_UNCHANGED && ret != SENSOR_WAIT_TIMER) {
         LOG_WARN(family->log, "warning: cannot get number of smc keys");
         return SENSOR_ERROR;
     }
@@ -607,44 +1004,119 @@ static sensor_status_t smc_list(sensor_family_t * family) {
     LOG_VERBOSE(family->log, "%s(): nb_keys = %d", __func__, total_keys);
 
     /* Scan each Key */
+    last = NULL;
     for (i = 0; i < total_keys; i++) {
-        value_size = sysdep_smc_readindex(i, &value_key, &value_type, NULL,
-                        priv->smc_handle, family->log);
+        char * label = NULL;
 
-        if (value_size < 0) {
-            continue;
-        }
+        /* cancelation point */
+        vjob_testkill();
 
+        /* alloc sensor_desc_t */
         if ((desc = malloc(sizeof(*desc))) == NULL) {
+            LOG_WARN(family->log, "cannot allocate smc sensor desc for #%u", i);
+            continue ;
+        }
+        desc->type = SENSOR_VALUE_NULL;
+        desc->label = NULL;
+        desc->family = family;
+
+        /* alloc sensor_property_t */
+        if ((desc->properties = sensor_properties_create(SMC_PROP_NB)) == NULL) {
+            LOG_WARN(family->log, "cannot allocate smc properties for key #%u'", i);
+            smc_free_desc(desc);
             continue ;
         }
 
-        desc->type = SENSOR_VALUE_NULL;
-        desc->label = NULL;
-        for (unsigned int i_desc = 0; i_desc < sizeof(s_smc_sensors)
-                                               / sizeof(*s_smc_sensors); ++i_desc) {
-            if (s_smc_sensors[i_desc].label != NULL) {
-                if (value_key == SMC_TYPE(s_smc_sensors[i_desc].key)) {
-                    desc->label = strdup(s_smc_sensors[i_desc].label);
+        /* alloc smc_desc_key_t */
+        if ((key = desc->key = malloc(sizeof(smc_desc_key_t))) == NULL) {
+            LOG_WARN(family->log, "cannot allocate smc cache for key #%u'", i);
+            smc_free_desc(desc);
+            continue ;
+        }
+        key->key_info = NULL;
+        key->format_fun = NULL;
+
+        /* ask key info to smc driver */
+        value_size = sysdep_smc_readindex(i, &value_key, &value_type,
+                        &(key->key_info), priv->smc_buffer, priv->smc_handle, family->log);
+
+        if (value_size < 0) {
+            LOG_WARN(family->log, "cannot get smc key info for #%u", i);
+            smc_free_desc(desc);
+            continue ;
+        }
+        key->value_key = value_key;
+        key->value_type = value_type;
+        key->value_index = i;
+        key->value_size = value_size;
+
+        /* get known human readable sensor label if exisiting */
+        for (unsigned int i_desc = 0; i_desc < sizeof(s_smc_known_sensors)
+                                               / sizeof(*s_smc_known_sensors); ++i_desc) {
+            if (s_smc_known_sensors[i_desc].label != NULL) {
+                if (value_key == SMC_TYPE(s_smc_known_sensors[i_desc].key)) {
+                    size_t len = strlen(s_smc_known_sensors[i_desc].label) + 1 /*0*/ + 7 /*' {abcd}'*/;
+                    if ((label = malloc(len * sizeof(char))) != NULL) {
+                        snprintf(label, len, "%s {%s}",
+                                 s_smc_known_sensors[i_desc].label, s_smc_known_sensors[i_desc].key);
+                    }
                     break ;
                 }
             }
         }
 
-        if (desc->label == NULL
-        &&  (desc->label = malloc((sizeof(value_key) + 1) * sizeof(char))) != NULL) {
-            _ultostr32(desc->label, sizeof(value_key) + 1, value_key, sizeof(value_key));
+        /* init sensor value and its formating function */
+        value.data.b.buf = NULL;
+        if ((key->format_fun = smc_getformatfun(value_type, value_size, &value, family))
+                == NULL) {
+            LOG_WARN(family->log, "cannot decode SMC key '%08x', skipping...", value_key);
+            smc_free_desc(desc);
+            continue ;
         }
-        desc->family = family;
-        desc->key = (void *)((unsigned long) value_key);
+        desc->type = value.type;
 
-        if ((priv->descs = slist_prepend(priv->descs, desc)) == NULL
-        ||  priv->descs->data != desc) {
+        /* attribute a default label if not known */
+        if (label == NULL) {
+            if ((label = malloc((sizeof(value_key) + 3) * sizeof(char))) == NULL) {
+                LOG_WARN(family->log, "cannot allocate smc sensor label for '%08x'", value_key);
+                smc_free_desc(desc);
+                continue ;
+            }
+            _ultostr32(label + 1, sizeof(value_key) + 1, value_key, sizeof(value_key));
+            *(label) = '{';
+            label[sizeof(value_key) + 1] = '}';
+            label[sizeof(value_key) + 2] = 0;
+        }
+        desc->label = label;
+
+        /* set sensor_properties */
+        sensor_property_init(&(desc->properties[SMC_PROP_TYPE]), "smc-type");
+        SENSOR_VALUE_INIT_BUF(desc->properties[SMC_PROP_TYPE].value, SENSOR_VALUE_STRING, NULL, 16);
+        _ultostr32(desc->properties[SMC_PROP_TYPE].value.data.b.buf,
+                   sizeof(value_type) + 1, value_type, sizeof(value_type));
+        sensor_property_init(&(desc->properties[SMC_PROP_SIZE]), "smc-size");
+        SENSOR_VALUE_INIT(desc->properties[SMC_PROP_SIZE].value, SENSOR_VALUE_UINT16, value_size);
+        sensor_property_init(&(desc->properties[SMC_PROP_KEY]), "smc-key");
+        SENSOR_VALUE_INIT_BUF(desc->properties[SMC_PROP_KEY].value, SENSOR_VALUE_STRING, NULL, 16);
+        _ultostr32(desc->properties[SMC_PROP_KEY].value.data.b.buf,
+                   sizeof(value_key) + 1, value_key, sizeof(value_key));
+        sensor_property_init(&(desc->properties[SMC_PROP_INDEX]), "smc-index");
+        SENSOR_VALUE_INIT(desc->properties[SMC_PROP_INDEX].value, SENSOR_VALUE_UINT32, i);
+
+        /* finally add desc to list */
+        if ((new = slist_prepend(NULL, desc)) == NULL) {
             LOG_WARN(family->log, "cannot append '%s' to smc sensor list!", desc->label);
             smc_free_desc(desc);
+            continue ;
         }
+        if (priv->descs == NULL) {
+            priv->descs = new;
+        } else {
+            last->next = new;
+        }
+        last = new;
     }
-
+    LOG_INFO(family->log, "sensors loaded");
     return SENSOR_SUCCESS;
 }
 

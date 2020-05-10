@@ -46,12 +46,25 @@ static sensor_status_t init_private_data(sensor_family_t *family) {
     network_priv_t * priv = (network_priv_t *) family->priv;;
     // Not Pretty but allows to have an initiliazed array with dynamic values.
     sensor_desc_t sensors_desc[] = {
-        { &priv->network_data.ibytes,       "network out bytes",       SENSOR_VALUE_ULONG,  family },
-        { &priv->network_data.obytes,       "network in bytes",        SENSOR_VALUE_ULONG,  family },
-        { &priv->network_data.ibytespersec, "network out bytes/sec",   SENSOR_VALUE_ULONG,  family },
-        { &priv->network_data.obytespersec, "network in bytes/sec",    SENSOR_VALUE_ULONG,  family },
-        { NULL, NULL, 0, NULL },
+        { &priv->network_data.obytes,           "network all out bytes",
+          NULL, SENSOR_VALUE_ULONG,  family },
+        { &priv->network_data.ibytes,           "network all in bytes",
+          NULL, SENSOR_VALUE_ULONG,  family },
+        { &priv->network_data.phy_obytes,       "network out bytes",
+          NULL, SENSOR_VALUE_ULONG,  family },
+        { &priv->network_data.phy_ibytes,       "network in bytes",
+          NULL, SENSOR_VALUE_ULONG,  family },
+        { &priv->network_data.obytespersec,     "network all out bytes/sec",
+          NULL, SENSOR_VALUE_ULONG,  family },
+        { &priv->network_data.ibytespersec,     "network all in bytes/sec",
+          NULL, SENSOR_VALUE_ULONG,  family },
+        { &priv->network_data.phy_obytespersec, "network out bytes/sec",
+          NULL, SENSOR_VALUE_ULONG,  family },
+        { &priv->network_data.phy_ibytespersec, "network in bytes/sec",
+          NULL, SENSOR_VALUE_ULONG,  family },
+        { NULL, NULL, NULL, 0, NULL },
     };
+    priv->last_update_time.tv_usec = INT_MAX;
     if ((priv->sensors_desc
             = calloc(sizeof(sensors_desc) / sizeof(*sensors_desc), sizeof(*sensors_desc))) == NULL) {
         return SENSOR_ERROR;
@@ -73,7 +86,6 @@ static sensor_status_t family_init(sensor_family_t *family) {
         return SENSOR_ERROR;
     }
     if (sysdep_network_support(family, NULL) != SENSOR_SUCCESS) {
-        family_free(family);
         return SENSOR_NOT_SUPPORTED;
     }
     if ((family->priv = calloc(1, sizeof(network_priv_t))) == NULL) {
@@ -102,24 +114,29 @@ static slist_t * family_list(sensor_family_t *family) {
 
 /** family-specific update */
 static sensor_status_t family_update(sensor_sample_t *sensor, const struct timeval * now) {
-    // Sanity checks are done in sensor_update_get()
-    network_priv_t * fpriv = (network_priv_t *) sensor->desc->family->priv;
-    if (fpriv == NULL) {
-       return SENSOR_ERROR;
+    /* Sanity checks are done in sensor_init and sensor_update_check() */
+    network_priv_t * priv = (network_priv_t *) sensor->desc->family->priv;
+
+    if (now == NULL) {
+        sysdep_network_get(sensor->desc->family, &(priv->network_data), NULL);
+    } else if (priv->last_update_time.tv_usec == INT_MAX) {
+        sysdep_network_get(sensor->desc->family, &(priv->network_data), NULL);
+        priv->last_update_time = *now;
+    } else {
+        /* Because all network datas are retrieved at once, don't repeat it for each sensor */
+        struct timeval  elapsed, * pelapsed = &elapsed;
+
+        timersub(now, &(priv->last_update_time), &elapsed);
+        if (elapsed.tv_sec == 0 && elapsed.tv_usec < 1000)
+            pelapsed = NULL;
+        if (timercmp(&elapsed, &(sensor->watch->update_interval), >=)) {
+            sysdep_network_get(sensor->desc->family, &(priv->network_data), pelapsed);
+            priv->last_update_time = *now;
+        }
     }
-    // Because all memory datas are retrieved at once, don't repeat it for each sensor
-    struct timeval elapsed;
-    struct timeval limit = {
-        .tv_sec     = sensor->watch.update_interval_ms / 1000,
-        .tv_usec    = (sensor->watch.update_interval_ms % 1000) * 1000,
-    };
-    timersub(now, &fpriv->last_update_time, &elapsed);
-    if (timercmp(&elapsed, &limit, >=)) {
-        sysdep_network_get(sensor->desc->family,
-                    &fpriv->network_data, fpriv->last_update_time.tv_sec == 0 ? NULL : &elapsed);
-        fpriv->last_update_time = *now;
-    }
-    // Always update the sensor Value;
+
+    /* Always update the sensor Value: we are called because sensor timeout expired.
+     * and another sensor with different timeout could have updated global data */
     return sensor_value_fromraw(sensor->desc->key, &sensor->value);
 }
 
@@ -129,5 +146,7 @@ const sensor_family_info_t g_sensor_family_network = {
     .free = family_free,
     .update = family_update,
     .list = family_list,
+    .notify = NULL,
+    .write = NULL
 };
 

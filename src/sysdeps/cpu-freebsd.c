@@ -169,7 +169,7 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
             sysdep->cp_times[(i-1) * CPUSTATES + CP_IDLE], cpu_clktck());
     }
 
-    cpu_store_ticks(family, 0, CPU_COMPUTE_GLOBAL, 0, 0, 0, elapsed);
+    cpu_store_ticks(family, CPU_COMPUTE_GLOBAL, 0, 0, 0, 0, elapsed);
 
     LOG_DEBUG(family->log,
                 "CPU %u%% (usr:%u sys:%u)",

@@ -38,8 +38,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <stdint.h>
+#include <inttypes.h>
 
 #include "network_private.h"
+
+#ifndef IFF_NOTRAILERS
+# define IFF_NOTRAILERS 0
+#endif
+#ifndef IFF_ALTPHYS
+# define IFF_ALTPHYS 0
+#endif
 
 typedef struct {
     char *      buf;
@@ -47,10 +56,22 @@ typedef struct {
     size_t      sysctl_len;
 } network_sysdep_t;
 
+#if ( defined(CTL_NET) && defined(PF_ROUTE)                         \
+      && (   (defined(NET_RT_IFLIST2) && defined(RTM_IFINFO2))      \
+          || (defined(NET_RT_IFLIST)  && defined(RTM_IFINFO)) ) )
+# define SENSOR_NETWORK_SUPPORTED 1
+#else
+# define SENSOR_NETWORK_SUPPORTED 0
+#endif
+
 sensor_status_t sysdep_network_support(sensor_family_t * family, const char * label) {
     (void) label;
     (void) family;
+#if SENSOR_NETWORK_SUPPORTED
     return SENSOR_SUCCESS;
+#else
+    return SENSOR_ERROR;
+#endif
 }
 
 sensor_status_t sysdep_network_init(sensor_family_t * family) {
@@ -94,10 +115,19 @@ sensor_status_t sysdep_network_get(
                     sensor_family_t *   family,
                     network_data_t *    data,
                     struct timeval *    elapsed) {
-
+#if ! SENSOR_NETWORK_SUPPORTED
+    (void) family;
+    (void) data;
+    (void) elapsed;
+    return SENSOR_ERROR;
+#else
+# if defined(NET_RT_IFLIST2) && defined(RTM_IFINFO2)
     int                 mib[] = { CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0 };
+# else
+    int                 mib[] = { CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST, 0 };
+# endif
     network_priv_t *    priv = (network_priv_t *) family->priv;
-    network_sysdep_t *  sysdep = priv ? (network_sysdep_t *) priv->sysdep : NULL;
+    network_sysdep_t *  sysdep = (network_sysdep_t *) priv->sysdep;
     size_t  len;
 
     if (sysdep == NULL) {
@@ -146,6 +176,7 @@ sensor_status_t sysdep_network_get(
             obytes = ifm->ifm_data.ifi_obytes;
             break ;
        }
+# if defined(NET_RT_IFLIST2) && defined(RTM_IFINFO2)
        case RTM_IFINFO2: {
             struct if_msghdr2 *ifm2 = (struct if_msghdr2 *) ifm;
             ifm_index = ifm2->ifm_index;
@@ -155,6 +186,7 @@ sensor_status_t sysdep_network_get(
             obytes = ifm2->ifm_data.ifi_obytes;
             break ;
         }
+# endif
        /*case RTM_NEWADDR:
        case RTM_NEWMADDR:
        case RTM_NEWMADDR2: {
@@ -174,7 +206,7 @@ sensor_status_t sysdep_network_get(
         #endif
         LOG_DEBUG(
             family->log,
-            "RTM_IFINFO%u #%d %s TYPE:%u UP:%d LO:%d I:%llu O:%llu FLAGS:%d"
+            "RTM_IFINFO%u #%d %s TYPE:%u UP:%d LO:%d I:%" PRIu64 " O:%" PRIu64 " FLAGS:%d"
             " OACT:%d BCST:%d DBG:%d PPP:%d NOTR:%d RUNN:%d NOARP:%d PRO:%d"
             " ALLM:%d SIMP:%d APH:%d MCST:%d",
             ifm->ifm_type, ifm_index, if_name, ifi_type,
@@ -205,18 +237,27 @@ sensor_status_t sysdep_network_get(
 	    }
     }
 
-    if (elapsed == NULL || (elapsed->tv_sec == 0 && elapsed->tv_usec == 0)) {
+    if (elapsed == NULL) {
         data->ibytespersec = 0;
         data->obytespersec = 0;
+        data->phy_ibytespersec = 0;
+        data->phy_obytespersec = 0;
     } else {
         data->ibytespersec = (((total_ibytes - data->ibytes) * 1000)
                                 / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000));
         data->obytespersec = (((total_obytes - data->obytes) * 1000)
                                 / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000));
+        data->phy_ibytespersec = (((phy_ibytes - data->phy_ibytes) * 1000)
+                                    / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000));
+        data->phy_obytespersec = (((phy_obytes - data->phy_obytes) * 1000)
+                                    / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000));
     }
     data->ibytes = total_ibytes;
     data->obytes = total_obytes;
+    data->phy_ibytes = phy_ibytes;
+    data->phy_obytes = phy_obytes;
 
     return SENSOR_SUCCESS;
+#endif
 }
 

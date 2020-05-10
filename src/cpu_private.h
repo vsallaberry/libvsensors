@@ -35,13 +35,13 @@ unsigned int    sysdep_cpu_nb(sensor_family_t * family);
 void            sysdep_cpu_destroy(sensor_family_t * family);
 
 /* Exposed to sysdeps */
-#define CPU_COMPUTE_GLOBAL      ULONG_MAX
+#define CPU_COMPUTE_GLOBAL      INT_MAX
 
 unsigned long   cpu_clktck();
 int             cpu_store_ticks(
                     sensor_family_t *       family,
-                    int                     cpu_idx,
-                    unsigned long           sys, /*can be CPU_COMPUTE_GLOBAL*/
+                    int                     cpu_idx, /*can be CPU_COMPUTE_GLOBAL*/
+                    unsigned long           sys,
                     unsigned long           user,
                     unsigned long           activity,
                     unsigned long           total,
@@ -60,8 +60,8 @@ typedef struct {
 
 /** Internal struct where all cpu info is kept */
 typedef struct {
-    unsigned char   nb_cpus;
-    cpu_tick_t *    ticks;
+    TYPE_SENSOR_VALUE_UINT16    nb_cpus;
+    cpu_tick_t *                ticks;
 } cpu_data_t;
 
 /** private/specific network family structure */

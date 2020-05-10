@@ -66,7 +66,7 @@ unsigned int    sysdep_cpu_nb(sensor_family_t * family) {
     if (priv->sysdep == NULL) {
         priv->sysdep = calloc(1, sizeof(cpu_linux_t));
         if (priv->sysdep == NULL) {
-            LOG_ERROR(family->log, "error, cannot malloc cpu_sysdep data");
+            LOG_ERROR(family->log, "error, cannot malloc %s sysdep data", family->info->name);
             errno=ENOMEM;
             return 0;
         }
@@ -123,7 +123,7 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
     unsigned long   n;
 
     if (priv->sysdep == NULL || sysdep->stat == NULL) {
-        LOG_ERROR(family->log, "error, cannot malloc cpu_sysdep data");
+        LOG_ERROR(family->log, "error, cannot malloc %s sysdep data", family->info->name);
         errno = EFAULT;
         return SENSOR_ERROR;
     }
@@ -132,6 +132,10 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
 
     while ((linesz = getline(&sysdep->stat_line, &sysdep->stat_linesz, sysdep->stat)) > 0) {
         char * line = sysdep->stat_line;
+
+        if (line == NULL)
+            break ;
+
         /* /proc/stat format: {
          *  cpu    total_user  total_nice  total_sys   total_idle
          *  cpu0   cpu0_user   cpu0_nice   cpu0_sys    cpu0_idle
@@ -141,6 +145,11 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
          */
         LOG_DEBUG(family->log, "%s LINE (sz:%zu) %s", CPU_PROC_FILE,
                   linesz, line);
+
+        while (*line == ' ' || *line == '\t') {
+            ++line;
+            --linesz;
+        }
         if (!strncmp(line, "cpu", 3)) {
             if (line[3] == ' ' || line[3] == '\t') {
                 n = 0;
