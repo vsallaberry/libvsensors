@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Vincent Sallaberry
+ * Copyright (C) 2020,2023 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -48,11 +48,13 @@ int                 sysdep_smc_close(void ** psmc_handle, log_t *log) {
 int                 sysdep_smc_readkey(
                         uint32_t        key,
                         uint32_t *      value_type,
+                        void **         key_info,
                         void *          output_buffer,
                         void *          smc_handle,
                         log_t *         log) {
     (void)key;
     (void)value_type;
+    (void)key_info;
     (void)output_buffer;
     (void)smc_handle;
     (void)log;
@@ -61,15 +63,36 @@ int                 sysdep_smc_readkey(
 
 int                 sysdep_smc_readindex(
                         uint32_t        index,
+                        uint32_t *      value_key,
                         uint32_t *      value_type,
+                        void **         key_info,
                         void *          output_buffer,
                         void *          smc_handle,
                         log_t *         log) {
     (void)index;
     (void)value_type;
+    (void)value_key;
+    (void)key_info;
     (void)output_buffer;
     (void)smc_handle;
     (void)log;
     return SENSOR_ERROR;
 }
 
+int             sysdep_smc_writekey(
+                    uint32_t        key,
+                    uint32_t *      value_type,
+                    void **         key_info,
+                    void *          input_buffer,
+                    uint32_t        input_size,
+                    void *          smc_handle,
+                    log_t *         log) {
+    (void)key;
+    (void)value_type;
+    (void)key_info;
+    (void)input_buffer;
+    (void)input_size;
+    (void)smc_handle;
+    (void)log;
+    return SENSOR_ERROR;
+}

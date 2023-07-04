@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Vincent Sallaberry
+ * Copyright (C) 2020,2023 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * Credits to Bill Wilson, Ben Hines and other gkrellm developers
@@ -51,10 +51,10 @@ typedef struct {
 /* ************************************************************************ */
 sensor_status_t sysdep_memory_support(sensor_family_t * family, const char * label) {
     (void) family;
-    if (label != NULL && (fnmatch("*active*", label, FNM_CASEFOLD) == 0
-                          || fnmatch("*wired*", label, FNM_CASEFOLD) == 0)) {
-        return SENSOR_ERROR;
-    }
+    (void) label;
+    /* if (label != NULL && (fnmatch("*SomethingNotSupported*", label, FNM_CASEFOLD) == 0)) {
+     *     return SENSOR_ERROR;
+     * } */
     return SENSOR_SUCCESS;
 }
 
@@ -126,13 +126,21 @@ sensor_status_t sysdep_memory_get(sensor_family_t * family, memory_data_t * data
     mem_linux_t *   sysdep = priv->sysdep;
     ssize_t         linesz;
 
-    if (priv->sysdep == NULL || sysdep->stat == NULL) {
+    if (priv->sysdep == NULL) {
         LOG_ERROR(family->log, "error, bad %s sysdep data", family->info->name);
         errno = EFAULT;
         return SENSOR_ERROR;
     }
 
-    fseek(sysdep->stat, 0, SEEK_SET);
+    if (sysdep->stat == NULL || fseek(sysdep->stat, 0, SEEK_SET) != 0) {
+        if (sysdep->stat != NULL)
+            fclose(sysdep->stat);
+        if ((sysdep->stat = fopen(MEM_MEMINFO_FILE, "r")) == NULL) {
+            return SENSOR_ERROR;
+        }
+    }
+
+    data->wired = 0; //((natural_t)vmStats.wire_count) * (unsigned long)((natural_t)vm_page_size);
 
     while ((linesz = getline(&sysdep->stat_line, &sysdep->stat_linesz, sysdep->stat)) > 0) {
         char * line = sysdep->stat_line;
@@ -144,7 +152,7 @@ sensor_status_t sysdep_memory_get(sensor_family_t * family, memory_data_t * data
             break ;
 
         /* /proc/meminfo format: {
-         *  <keyword>:      <value> <unit/info>
+         *  <keyword>:      <value> <unit/info> // For historical reason the unit kB is used but data is actually KiB.
          *  TotalMemory:    <number> kB
          *  ...
          */
@@ -177,12 +185,17 @@ sensor_status_t sysdep_memory_get(sensor_family_t * family, memory_data_t * data
             data->total_swap = strtoul(value, NULL, 10) * 1024;
         } else if (strncasecmp(token, "SwapFree", tok_len) == 0) {
             data->free_swap = strtoul(value, NULL, 10) * 1024;
+        } else if (strncasecmp(token, "Active:", tok_len + 1) == 0) {
+            data->active = strtoul(value, NULL, 10) * 1024;
+        } else if (strncasecmp(token, "Inactive:", tok_len + 1) == 0) {
+            data->inactive = strtoul(value, NULL, 10) * 1024;
+        } else if (strncasecmp(token, "Unevictable", tok_len) == 0) {
+            data->wired += strtoul(value, NULL, 10) * 1024;
+        } else if (strncasecmp(token, "Mlocked", tok_len) == 0) {
+            data->wired += strtoul(value, NULL, 10) * 1024;
         }
     }
 
-    data->active = 0;//((natural_t)vmStats.active_count) * (unsigned long)((natural_t)vm_page_size);
-    data->inactive = 0; //((natural_t)vmStats.inactive_count) * (unsigned long)((natural_t)vm_page_size);
-    data->wired = 0; //((natural_t)vmStats.wire_count) * (unsigned long)((natural_t)vm_page_size);
     //data->free = 0; //((natural_t)vmStats.free_count) * (unsigned long)((natural_t)vm_page_size);
 
     data->used = data->total - data->free; //data->active + data->wired;

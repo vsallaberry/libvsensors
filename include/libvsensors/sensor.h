@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Vincent Sallaberry
+ * Copyright (C) 2017-2020,2023 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -90,6 +90,9 @@ typedef struct sensor_ctx_s sensor_ctx_t;
 /** sensor family struct to be defined below */
 typedef struct sensor_family_s sensor_family_t;
 
+/** sensor desc struct to be defined below */
+typedef struct sensor_desc_s sensor_desc_t;
+
 /** sensor sample struct to be defined below */
 typedef struct sensor_sample_s sensor_sample_t;
 
@@ -160,6 +163,9 @@ typedef enum {
                                 ? 0 : 0xff), ((_val).data.b.maxsize)); \
                 } \
             } while (0)
+
+#define SENSOR_VALUE_INIT_STR(_val, _str) \
+            SENSOR_VALUE_INIT_BUF(_val, SENSOR_VALUE_STRING, (char *)_str, strlen(_str)+1)
 
 /**
  * Sensor values internal types
@@ -289,14 +295,9 @@ typedef struct {
     sensor_status_t     (*update)(struct sensor_sample_s *sensor, const struct timeval * now);
 
     /** write(): called by libvsensors to write a value on sensors supporting it.
-     * Family should only update the sensor_sample->value and return:
      * - SENSOR_ERROR or SENSOR_NOT_SUPPORTED on error:
-     * - SENSOR_UPDATED if the value has changed
-     * - SENSOR_UNCHANGED if the value did not change
-     * - SENSOR_SUCCESS if it does not know if value changed.
-     * update_interval is not reset on error */
-    sensor_status_t     (*write)(struct sensor_sample_s *sensor, const sensor_value_t * value,
-                                 const struct timeval * now);
+     * - SENSOR_SUCCESS on success. */
+    sensor_status_t     (*write)(const struct sensor_desc_s * sensor, const sensor_value_t * value);
 
     /** RFU notify(): return SENSOR_ERROR on error, or SENSOR_SUCCESS
      * event is a bit combination of sensor_watch_event_t */
@@ -324,7 +325,7 @@ typedef struct {
 /**
  * Type: Description of a single sensor
  */
-typedef struct {
+struct sensor_desc_s {
     /** key  : family specific field: handled by family */
     void *                  key;
     /** label: unique identifier of sensor of given family */
@@ -337,7 +338,7 @@ typedef struct {
     sensor_value_type_t     type;
     /** family: BOF TODO */
     sensor_family_t *       family;
-} sensor_desc_t;
+};
 
 /** Type: call back on sensor update : RFU/TBD/TODO */
 typedef sensor_status_t (*sensor_watch_callback_t)(

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Vincent Sallaberry
+ * Copyright (C) 2017-2020,2023 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * Portions Copyright (C) 2006 devnull
@@ -32,6 +32,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <errno.h>
+
+#include <mach/mach_error.h>
 
 #include <IOKit/IOKitLib.h>
 
@@ -352,6 +355,75 @@ int             sysdep_smc_readkey(
 
     return value_size;
 }
+
+/* ************************************************************************ */
+int             sysdep_smc_writekey(
+                    uint32_t        key,
+                    uint32_t *      value_type,
+                    void **         key_info,
+                    void *          input_buffer,
+                    uint32_t        input_size,
+                    void *          smc_handle,
+                    log_t *         log)
+{
+    io_connect_t            io_connection = (io_connect_t)((unsigned long)smc_handle);
+    kern_return_t           result;
+    SMCKeyData_t            input_data;
+    SMCKeyData_t            output_data;
+    //SMCKeyData_t *          output_data = (SMCKeyData_t *) output_buffer;
+    unsigned int            value_size;
+
+    memset(&input_data, 0, sizeof(SMCKeyData_t));
+    memset(&output_data, 0, sizeof(SMCKeyData_t));
+
+    if (key_info != NULL && *key_info != NULL) {
+        input_data.keyInfo = *((SMCKeyData_keyInfo_t*)*key_info);
+    } else if (smc_get_keyinfo(key, &(input_data.keyInfo), io_connection, log,
+                               key_info == NULL) == SMC_SUCCESS) {
+        if (key_info != NULL && (*key_info = malloc(sizeof(input_data.keyInfo))) != NULL) {
+            memcpy(*key_info, &(input_data.keyInfo), sizeof(input_data.keyInfo));
+        }
+    } else {
+        LOG_WARN(log, "key '%x': cannot get key info !", key);
+        return SMC_ERROR;
+    }
+    value_size = input_data.keyInfo.dataSize;
+
+    /*TODO if ((input_data.keyInfo.dataAttributes & 0x02 WRITE) == 0) {
+        LOG_VERBOSE(log, "key '%x' is not writtable !", key);
+        return SMC_ERROR;
+    }*/
+
+    #ifdef _DEBUG
+    LOG_BUFFER(LOG_LVL_SCREAM, log, &key, sizeof(key), "KEY sz:%2u ", value_size);
+    #endif
+
+    if (value_type != NULL) {
+        *value_type = input_data.keyInfo.dataType;
+        #ifdef _DEBUG
+        LOG_BUFFER(LOG_LVL_SCREAM, log, value_type, sizeof(*value_type), "  TYPE    ");
+        #endif
+    }
+
+    input_data.data8 = SMC_CMD_WRITE_BYTES;
+    input_data.key = key;
+    memcpy(input_data.bytes, input_buffer, input_size);
+
+    result = sysdep_smc_call(SMC_IOSERVICE_KERNEL_INDEX, &input_data,
+                             &output_data, io_connection, log);
+    if (result != kIOReturnSuccess) {
+        char * str = mach_error_string(result);
+        LOG_WARN(log, "key '%x': cannot write bytes: %s",
+                 key, /*(unsigned long) result,*/ str ? str : "unknown error");
+        return SMC_ERROR;
+    }
+    #ifdef _DEBUG
+    LOG_BUFFER(LOG_LVL_SCREAM, log, output_data.bytes, value_size, "  BYTES   ");
+    #endif
+
+    return SMC_SUCCESS;
+}
+
 
 /* ************************************************************************ */
 int sysdep_smc_readindex(

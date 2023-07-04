@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Vincent Sallaberry
+ * Copyright (C) 2020,2023 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * Credits to Bill Wilson, Ben Hines and other gkrellm developers
@@ -122,13 +122,19 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
     ssize_t         linesz;
     unsigned long   n;
 
-    if (priv->sysdep == NULL || sysdep->stat == NULL) {
+    if (priv->sysdep == NULL) {
         LOG_ERROR(family->log, "error, cannot malloc %s sysdep data", family->info->name);
         errno = EFAULT;
         return SENSOR_ERROR;
     }
 
-    fseek(sysdep->stat, 0, SEEK_SET);
+    if (sysdep->stat == NULL || fseek(sysdep->stat, 0, SEEK_SET) != 0) {
+        if (sysdep->stat != NULL)
+            fclose(sysdep->stat);
+        if ((sysdep->stat = fopen(CPU_PROC_FILE, "r")) == NULL) {
+            return SENSOR_ERROR;
+        }
+    }
 
     while ((linesz = getline(&sysdep->stat_line, &sysdep->stat_linesz, sysdep->stat)) > 0) {
         char * line = sysdep->stat_line;

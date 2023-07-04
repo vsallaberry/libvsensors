@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Vincent Sallaberry
+ * Copyright (C) 2020,2023 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * Credits to Bill Wilson, Ben Hines and other gkrellm developers
@@ -117,13 +117,19 @@ sensor_status_t     sysdep_network_get(
     uint64_t phy_ibytes = 0;
     uint64_t phy_obytes = 0;
 
-    if (priv->sysdep == NULL || sysdep->stat == NULL) {
+    if (priv->sysdep == NULL) {
         LOG_ERROR(family->log, "error, bad %s sysdep data", family->info->name);
         errno = EFAULT;
         return SENSOR_ERROR;
     }
 
-    fseek(sysdep->stat, 0, SEEK_SET);
+    if (sysdep->stat == NULL || fseek(sysdep->stat, 0, SEEK_SET) != 0) {
+        if (sysdep->stat != NULL)
+            fclose(sysdep->stat);
+        if ((sysdep->stat = fopen(NET_DEV_FILE, "r")) == NULL) {
+            return SENSOR_ERROR;
+        }
+    }
 
     while ((linesz = getline(&sysdep->stat_line, &sysdep->stat_linesz, sysdep->stat)) > 0) {
         char * line = sysdep->stat_line;
@@ -234,11 +240,6 @@ sensor_status_t     sysdep_network_get(
             continue ;
     }
 
-    data->ibytes = total_ibytes;
-    data->obytes = total_obytes;
-    data->phy_ibytes = phy_ibytes;
-    data->phy_obytes = phy_obytes;
-
     if (elapsed == NULL) {
         data->ibytespersec = 0;
         data->obytespersec = 0;
@@ -254,6 +255,11 @@ sensor_status_t     sysdep_network_get(
         data->phy_obytespersec = (((phy_obytes - data->phy_obytes) * 1000)
                                     / (elapsed->tv_sec * 1000 + elapsed->tv_usec / 1000));
     }
+
+    data->ibytes = total_ibytes;
+    data->obytes = total_obytes;
+    data->phy_ibytes = phy_ibytes;
+    data->phy_obytes = phy_obytes;
 
     return SENSOR_SUCCESS;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Vincent Sallaberry
+ * Copyright (C) 2017-2020,2023 Vincent Sallaberry
  * libvsensors <https://github.com/vsallaberry/libvsensors>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -2552,10 +2552,12 @@ long double sensor_value_todouble(const sensor_value_t * value) {
                 errno = EINVAL;
                 return 0.0L;
             }
-            if (value->data.b.size < value->data.b.maxsize)
-                value->data.b.buf[value->data.b.size] = 0;
-            else
+            if (value->data.b.size < value->data.b.maxsize) {
+                if (value->data.b.buf[value->data.b.size] != 0)
+                    value->data.b.buf[value->data.b.size] = 0;
+            } else if (value->data.b.buf[value->data.b.size - 1] != 0) {
                 value->data.b.buf[value->data.b.size - 1] = 0;
+            }
             errno = 0;
             result = strtold(value->data.b.buf, &endptr);
             if (!endptr || *endptr || errno != 0) {
@@ -2648,10 +2650,12 @@ intmax_t sensor_value_toint(const sensor_value_t * value) {
                 errno = EINVAL;
                 return INTMAX_C(0);
             }
-            if (value->data.b.size < value->data.b.maxsize)
-                value->data.b.buf[value->data.b.size] = 0;
-            else
+            if (value->data.b.size < value->data.b.maxsize) {
+                if (value->data.b.buf[value->data.b.size] != 0)
+                    value->data.b.buf[value->data.b.size] = 0;
+            } else if (value->data.b.buf[value->data.b.size - 1] != 0) {
                 value->data.b.buf[value->data.b.size - 1] = 0;
+            }
             errno = 0;
             result = strtoimax(value->data.b.buf, &endptr, 0);
             if (!endptr || *endptr || errno != 0) {
