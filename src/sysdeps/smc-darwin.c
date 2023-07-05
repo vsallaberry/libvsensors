@@ -149,6 +149,55 @@ static OSSpinLock   s_keyinfo_lock = OS_SPINLOCK_INIT;
 # define SMC_UNLOCK(lock)
 #endif
 
+// ************************************************************************
+static const char * sysdep_smc_mach_error_string(kern_return_t result) {
+    const char * str = mach_error_string(result);
+    return str != NULL ? str : "unknown error";
+}
+
+// ************************************************************************
+static int sysdep_smc_kernreturn_to_errno(kern_return_t kret) {
+    switch (kret) {
+        case kIOReturnSuccess:
+            return 0;
+        case kIOReturnNotPrivileged:
+        case kIOReturnNotPermitted:
+        case kIOReturnNotReadable:
+        case kIOReturnNotWritable:
+            return EPERM;
+        case kIOReturnAborted:
+            return EINTR;
+        case kIOReturnUnsupported:
+            return ENOTSUP;
+        case kIOReturnBadArgument:
+        case kIOReturnInvalid:
+            return EINVAL;
+        case kIOReturnIOError:
+            return EIO;
+        case kIOReturnVMError:
+            return EFAULT;
+        case kIOReturnNoSpace:
+            return ENOSPC;
+        case kIOReturnNoMemory:
+        case kIOReturnNoResources:
+            return ENOMEM;
+        case kIOReturnLockedRead:
+        case kIOReturnLockedWrite:
+        case kIOReturnExclusiveAccess:
+        case kIOReturnCannotLock:
+        case kIOReturnBusy:
+        case kIOReturnNotResponding:
+        case kIOReturnNotReady:
+            return EBUSY;
+        case kIOReturnDeviceError:
+            return ENODEV;
+        case kIOReturnNoDevice:
+        case kIOReturnNotFound:
+            return ENOENT;
+        default:
+            return 0; //(int) kret; // strerror will give ('undefined error: <n>')
+    }
+}
 
 /* ************************************************************************ */
 int sysdep_smc_support(sensor_family_t * family, const char * label) {
@@ -175,8 +224,9 @@ int sysdep_smc_open(void ** psmc_handle, log_t * log,
     CFMutableDictionaryRef matchingDictionary = IOServiceMatching(SMC_IOSERVICE_NAME);
     result = IOServiceGetMatchingServices(kIOMasterPortDefault, matchingDictionary, &iterator);
     if (result != kIOReturnSuccess) {
-        LOG_ERROR(log, "Error: IOServiceGetMatchingServices(%s) = %08x",
-                SMC_IOSERVICE_NAME, result);
+        LOG_ERROR(log, "Error: IOServiceGetMatchingServices(%s): %s",
+                SMC_IOSERVICE_NAME, sysdep_smc_mach_error_string(result));
+        errno = sysdep_smc_kernreturn_to_errno(result);
         return SMC_ERROR;
     }
 
@@ -190,7 +240,8 @@ int sysdep_smc_open(void ** psmc_handle, log_t * log,
     result = IOServiceOpen(device, mach_task_self(), 0, &io_connection);
     IOObjectRelease(device);
     if (result != kIOReturnSuccess) {
-        LOG_ERROR(log, "Error: IOServiceOpen() = %08x", result);
+        LOG_ERROR(log, "Error: IOServiceOpen(): %s", sysdep_smc_mach_error_string(result));
+        errno = sysdep_smc_kernreturn_to_errno(result);
         return SMC_ERROR;
     }
 
@@ -208,7 +259,8 @@ int sysdep_smc_close(void * smc_handle, log_t * log) {
 
     result = IOServiceClose(io_connection);
     if (result != kIOReturnSuccess) {
-        LOG_ERROR(log, "IOServiceClose() error");
+        LOG_ERROR(log, "IOServiceClose() error: %s", sysdep_smc_mach_error_string(result));
+        errno = sysdep_smc_kernreturn_to_errno(result);
         return SMC_ERROR;
     }
     return SMC_SUCCESS;
@@ -274,8 +326,9 @@ static int smc_get_keyinfo(
     if (result != kIOReturnSuccess) {
         if (use_cache)
             SMC_UNLOCK(s_keyinfo_lock);
-        LOG_WARN(log, "SMC KEY %08x : cannot read key info ! (ret %lx)",
-                  key, (unsigned long) result);
+        LOG_WARN(log, "SMC KEY %08x : cannot read key info: %s",
+                  key, sysdep_smc_mach_error_string(result));
+        errno = sysdep_smc_kernreturn_to_errno(result);
         return SMC_ERROR;
     }
     *key_info = output_data.keyInfo;
@@ -345,8 +398,9 @@ int             sysdep_smc_readkey(
     result = sysdep_smc_call(SMC_IOSERVICE_KERNEL_INDEX, &input_data,
                              output_data, io_connection, log);
     if (result != kIOReturnSuccess) {
-        LOG_DEBUG(log, "key '%x': cannot read bytes ! (ret %lx)",
-                  key, (unsigned long) result);
+        LOG_DEBUG(log, "key '%x': cannot read bytes: %s",
+                  key, sysdep_smc_mach_error_string(result));
+        errno = sysdep_smc_kernreturn_to_errno(result);
         return SMC_ERROR;
     }
     #ifdef _DEBUG
@@ -412,9 +466,9 @@ int             sysdep_smc_writekey(
     result = sysdep_smc_call(SMC_IOSERVICE_KERNEL_INDEX, &input_data,
                              &output_data, io_connection, log);
     if (result != kIOReturnSuccess) {
-        char * str = mach_error_string(result);
         LOG_WARN(log, "key '%x': cannot write bytes: %s",
-                 key, /*(unsigned long) result,*/ str ? str : "unknown error");
+                 key, sysdep_smc_mach_error_string(result));
+        errno = sysdep_smc_kernreturn_to_errno(result);
         return SMC_ERROR;
     }
     #ifdef _DEBUG
@@ -456,7 +510,7 @@ int sysdep_smc_readindex(
     result = sysdep_smc_call(SMC_IOSERVICE_KERNEL_INDEX,
                              &input_data, output_data, io_connection, log);
     if (result != kIOReturnSuccess) {
-        LOG_DEBUG(log, "%s() smc_call error", __func__);
+        LOG_DEBUG(log, "%s() smc_call error: %s", __func__, sysdep_smc_mach_error_string(result));
         return SMC_ERROR;
     }
     #ifdef _DEBUG
