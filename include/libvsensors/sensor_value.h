@@ -26,6 +26,9 @@
  *  SENSOR_VALUE_INIT(value2, SENSOR_VALUE_INT, 2);
  *  if (sensor_value_compare(&value1, &value2) == 0) { }
  */
+#ifndef LIBVSENSORS_SENSOR_H
+# include "sensor.h"
+#endif
 #ifndef LIBVSENSORS_SENSOR_VALUE_H
 #define LIBVSENSORS_SENSOR_VALUE_H
 
@@ -42,8 +45,6 @@
 # include <stdint.h>
 # include <inttypes.h>
 #endif
-
-#include "sensor.h"
 
 /* ************************************************************************ */
 #ifndef PRIu64

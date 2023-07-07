@@ -80,7 +80,7 @@ typedef enum {
 } sensor_status_t;
 
 /* include the sensor_value_t type and sensor_value_*() functions */
-#include "libvsensors/sensor_value.h"
+#include "sensor_value.h"
 
 /** opaque sensor handle */
 typedef struct sensor_ctx_s sensor_ctx_t;
