@@ -19,7 +19,7 @@
 /* ------------------------------------------------------------------------
  * disk os specific default implementation for Generic Sensor Management Library.
  */
-#include "libvsensors/sensor.h"
+#include "disk_private.h"
 
 sensor_status_t sysdep_disk_support(sensor_family_t * family, const char * label) {
     (void)family;
@@ -27,3 +27,20 @@ sensor_status_t sysdep_disk_support(sensor_family_t * family, const char * label
     return SENSOR_ERROR;
 }
 
+sensor_status_t sysdep_disk_get (sensor_family_t * family,
+                                 disk_data_t *data, struct timeval *elapsed_time) {
+    (void)family;
+    (void)data;
+    (void)elapsed_time;
+    return SENSOR_ERROR;
+}
+
+sensor_status_t sysdep_disk_init(sensor_family_t * family) {
+    (void)family;
+    return SENSOR_ERROR;
+}
+
+sensor_status_t sysdep_disk_destroy(sensor_family_t * family) {
+    (void)family;
+    return SENSOR_ERROR;
+}
