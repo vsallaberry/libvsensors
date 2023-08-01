@@ -44,6 +44,7 @@
 #include "smc.h"
 #include "memory.h"
 #include "disk.h"
+#include "file.h"
 #include "network.h"
 #include "cpu.h"
 #include "power.h"
@@ -83,6 +84,7 @@ static const sensor_family_info_t * s_families_info[] = {
     &g_sensor_family_memory,
     &g_sensor_family_network,
     &g_sensor_family_disk,
+    &g_sensor_family_file,
     &g_sensor_family_power,
     &g_sensor_family_smc,
     NULL
