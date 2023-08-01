@@ -266,6 +266,9 @@ typedef sensor_status_t (*sensor_watch_visitfun_t)(sensor_sample_t * sample, voi
  */
 #define SENSOR_LOG_PREFIX   "sensors"
 
+/** common family providing utilities for sensors and plugins */
+#include "sensor_common.h"
+
 /* ************************************************************************ */
 #ifdef __cplusplus
 extern "C" {
@@ -535,6 +538,12 @@ sensor_status_t sensor_family_register(
  * When family will be loaded, its 'update()' function will return 
  * SENSOR_RELOAD_FAMILY. sensor_family_t.notify can be used to wait readyness. */
 slist_t *       sensor_family_loading_list(sensor_family_t * family);
+
+/** RFU: send a signal to the libvsensors from families/plugins */
+sensor_status_t sensor_family_signal(sensor_family_t * family);
+
+/** COMMON FAMILY providing utilities for other sensors 
+ * see sensor_common.h */
 
 /* ************************************************************************
  * SENSOR_PROPERTY : internal helpers for families/plugins

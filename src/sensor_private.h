@@ -37,12 +37,15 @@
 #  define SENSOR_UNLIKELY(cond)  (cond)
 # endif
 
+/* common family for utilities, not registering any sensor */
+extern const sensor_family_info_t g_sensor_family_common;
+
 /* ************************************************************************ */
 # ifdef __cplusplus
 extern "C" {
 # endif
 
-void sensor_value_info_init();
+void                sensor_value_info_init();
 
 # ifdef __cplusplus
 }

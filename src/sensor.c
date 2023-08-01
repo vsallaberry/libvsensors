@@ -78,6 +78,7 @@
 
 /* ************************************************************************ */
 static const sensor_family_info_t * s_families_info[] = {
+    &g_sensor_family_common,
     &g_sensor_family_cpu,
     &g_sensor_family_memory,
     &g_sensor_family_network,
@@ -92,6 +93,7 @@ typedef enum {
 } sensors_priv_flag_t;
 
 struct sensor_ctx_s {
+    sensor_family_t *   common;
     slist_t *           families;
     slist_t *           sensorlist;
     slist_t *           watchlist;
@@ -375,6 +377,10 @@ static sensor_status_t sensor_family_register_unlocked(
         return SENSOR_ERROR;
     }
 
+    if (sctx->common == NULL && fam_info == &g_sensor_family_common) {
+        sctx->common = fam;
+    }
+    
     LOG_INFO(sctx->log, "%s: loaded.", fam->info->name);
     if (p_fam != NULL)
         *p_fam = fam;
@@ -648,8 +654,10 @@ sensor_status_t sensor_free(sensor_ctx_t * sctx) {
 
     /* free families */
     SLIST_FOREACH_DATA(sctx->families, fam, sensor_family_t *) {
-        sensor_family_free(fam, sctx);
+        if (fam != sctx->common)
+            sensor_family_free(fam, sctx); // free common at the end
     }
+    sensor_family_free(sctx->common, sctx);
     slist_free(sctx->families, NULL);
 
     /* release / free logs & logpool */
@@ -804,6 +812,26 @@ sensor_status_t sensor_family_register(
     return ret;
 }
 
+sensor_family_t *   sensor_family_common(sensor_ctx_t * sctx) {
+    return sctx ? sctx->common : NULL;
+}
+
+sensor_status_t sensor_family_signal(sensor_family_t * family) {
+    int ret;
+    SENSOR_LOCK_LOCK(family->sctx);
+    ret = pthread_cond_signal(&family->sctx->cond);
+    SENSOR_LOCK_UNLOCK(family->sctx);
+    return ret == 0 ? SENSOR_SUCCESS : SENSOR_ERROR;
+}
+
+sensor_status_t sensor_family_wait(sensor_family_t * family) {
+    int ret;
+    SENSOR_LOCK_LOCK(family->sctx);
+    ret = pthread_cond_wait(&family->sctx->cond, &family->sctx->mutex);
+    SENSOR_LOCK_UNLOCK(family->sctx);
+    sched_yield();
+    return ret == 0 ? SENSOR_SUCCESS : SENSOR_ERROR;
+}
 
 /* ************************************************************************
  * SENSOR LOCKING FUNCTIONS
