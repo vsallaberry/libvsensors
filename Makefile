@@ -123,7 +123,7 @@ FLAGS_ADA	=
 FLAGS_CXX	+= $(FLAGS_GNUCXX_XTRA_$(UNAME_SYS)_$(CXX:++=pppp))
 FLAGS_OBJCXX	+= $(FLAGS_GNUCXX_XTRA_$(UNAME_SYS)_$(CXX:++=pppp))
 LIBS_darwin	= -framework IOKit -framework Foundation $(LIBS_GNUCXX_XTRA_$(UNAME_SYS)_$(CXX:++=pppp))
-LIBS_linux	= -lrt
+LIBS_linux	= -lrt -ldl
 
 # TESTS and DEBUG parameters
 # VALGRIND_RUN: how to run the program with valgrind (can be used to pass arguments to valgrind)
