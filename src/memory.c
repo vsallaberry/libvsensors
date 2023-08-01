@@ -22,7 +22,12 @@
 //#import <Foundation/Foundation.h>
 #include <sys/types.h>
 #include <sys/param.h>
-#include <sys/sysctl.h>
+
+/*# if defined(__linux__) || defined(BUILD_SYS_linux)
+#  include <linux/sysctl.h>
+# else
+#  include <sys/sysctl.h>
+# endif*/
 
 #include <stdlib.h>
 #include <stdio.h>

@@ -142,6 +142,9 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
         if (line == NULL)
             break ;
 
+        if (sysdep->stat_line[linesz - 1] == '\n')
+            sysdep->stat_line[--linesz] = 0;
+
         /* /proc/stat format: {
          *  cpu    total_user  total_nice  total_sys   total_idle
          *  cpu0   cpu0_user   cpu0_nice   cpu0_sys    cpu0_idle
@@ -149,8 +152,8 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
          * ticks for cpu are jiffies * smp_num_cpus
          * ticks for cpu[i] are jiffies (1/CLK_TCK)
          */
-        LOG_DEBUG(family->log, "%s LINE (sz:%zu) %s", CPU_PROC_FILE,
-                  linesz, line);
+        LOG_SCREAM(family->log, "%s LINE (sz:%zu) %s", CPU_PROC_FILE,
+                   linesz, line);
 
         while (*line == ' ' || *line == '\t') {
             ++line;
@@ -173,14 +176,15 @@ sensor_status_t sysdep_cpu_get(sensor_family_t * family, struct timeval *elapsed
                 cpu_data_t * data = &priv->cpu_data;
 
                 while ((tok_len = strtok_ro_r(&token, " \t", &next, &maxlen, 0)) >= 0 && *next) {
-                    if (tok_len == 0) continue ;
-                    if (tok_idx == 1) /* user */
+                    if (tok_len == 0) {
+                        continue ;
+                    } else if (tok_idx == 1) { /* user */
                         user = strtoul(token, NULL, 0);
-                    if (tok_idx == 2) /* nice */
+                    } else if (tok_idx == 2) { /* nice */
                         user += strtoul(token, NULL, 0);
-                    if (tok_idx == 3) /* sys */
+                    } else if (tok_idx == 3) { /* sys */
                         sys = strtoul(token, NULL, 0);
-                    if (tok_idx == 4) { /* idle */
+                    } else if (tok_idx == 4) { /* idle */
                         activity =
                             + user
                             + sys;

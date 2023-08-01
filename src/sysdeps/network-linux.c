@@ -135,25 +135,29 @@ sensor_status_t     sysdep_network_get(
         char * line = sysdep->stat_line;
         const char * token, * value, * next = line;
         ssize_t tok_len, val_len;
-        size_t maxlen = linesz;
+        size_t maxlen;
         unsigned int val_idx = 0;
         int phys;
 
         if (sysdep->stat_line == NULL)
             break ;
 
+        if (sysdep->stat_line[linesz - 1] == '\n')
+            sysdep->stat_line[--linesz] = 0;
+            
         /* /proc/net/dev format: {
          * Inter-|   Receive                                                |  Transmit
          * face  |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
          * lo:    536913    2398    0    0    0     0          0         0   532713    2398    0    0    0     0       0          0
          * enp6s9:387310     731    0    0    0     0          0         0    51693     645    0    0    0     0       0          0
          *  ... */
-        LOG_DEBUG(family->log, "%s LINE (sz:%zu) %s", NET_DEV_FILE,
-                  linesz, line);
+        LOG_SCREAM(family->log, "%s LINE (sz:%zu) %s", NET_DEV_FILE,
+                   linesz, line);
 
         if (linesz <= 1)
             continue ;
 
+        maxlen = linesz;
         /* get interface name */
         while (*next == ' ' || *next == '\t') {
             ++next;

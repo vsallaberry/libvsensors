@@ -146,22 +146,26 @@ sensor_status_t sysdep_memory_get(sensor_family_t * family, memory_data_t * data
         char * line = sysdep->stat_line;
         const char * token, * value, * next = line;
         ssize_t tok_len, val_len;
-        size_t maxlen = linesz;
+        size_t maxlen;
 
         if (sysdep->stat_line == NULL)
             break ;
 
+        if (sysdep->stat_line[linesz - 1] == '\n')
+            sysdep->stat_line[--linesz] = 0;
+            
         /* /proc/meminfo format: {
          *  <keyword>:      <value> <unit/info> // For historical reason the unit kB is used but data is actually KiB.
          *  TotalMemory:    <number> kB
          *  ...
          */
-        LOG_DEBUG(family->log, "%s LINE (sz:%zu) %s", MEM_MEMINFO_FILE,
-                  linesz, line);
+        LOG_SCREAM(family->log, "%s LINE (sz:%zu) %s", MEM_MEMINFO_FILE,
+                   linesz, line);
 
         if (linesz <= 1)
             continue ;
-
+            
+        maxlen = linesz;
         /* get value name */
         while (*next == ' ' || *next == '\t') {
             ++next;
