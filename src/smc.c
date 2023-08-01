@@ -264,6 +264,22 @@ static sensor_status_t smc_family_loading_update(sensor_sample_t *sensor, const 
 }
 
 /* ************************************************************************ */
+static sensor_status_t sensor_family_loading_notify(
+                    unsigned int event, struct sensor_family_s * family,
+                    struct sensor_sample_s * sample, sensor_watch_ev_data_t * ev_data) {
+    smc_priv_t * priv = (smc_priv_t *) family->priv;
+    (void)sample;
+    (void)ev_data;
+    
+    if ((event & SWE_FAMILY_WAIT_LOAD) != 0) {
+        SLISTC_FOREACH_DATA(priv->jobs, job, vjob_t *) {
+            vjob_wait(job);
+        }
+    }
+    return SENSOR_SUCCESS;                                     
+}
+                                  
+/* ************************************************************************ */
 #define SMC_FAMILY_NAME "smc"
 const sensor_family_info_t g_sensor_family_smc = {
     .name = SMC_FAMILY_NAME,
@@ -271,7 +287,7 @@ const sensor_family_info_t g_sensor_family_smc = {
     .free = smc_family_free,
     .update = smc_family_loading_update,
     .list = smc_family_list,
-    .notify = NULL,
+    .notify = sensor_family_loading_notify,
     .write = smc_family_write
 };
 const sensor_family_info_t g_sensor_family_smc_loaded = {

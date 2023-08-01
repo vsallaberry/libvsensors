@@ -87,10 +87,9 @@ static const sensor_family_info_t * s_families_info[] = {
     NULL
 };
 
-typedef enum {
-    SFC_NONE            = 0,
-    SFC_FREE_LOGPOOL    = 1 << 0,
-} sensors_flags_t;
+typedef enum {    
+    SPF_FREE_LOGPOOL    = SIF_RESERVED << 0,
+} sensors_priv_flag_t;
 
 struct sensor_ctx_s {
     slist_t *           families;
@@ -100,7 +99,7 @@ struct sensor_ctx_s {
     avltree_t *         watchs;
     avltree_t *         sensors;
     avltree_t *         properties;
-    int                 flags;
+    unsigned int        flags;
     log_t *             log;
     logpool_t *         logpool;
     pthread_rwlock_t    rwlock;
@@ -323,6 +322,22 @@ static void sensor_desc_free_one(void * vdata) {
  * ************************************************************************ */
 
 /* ************************************************************************ */
+static sensor_status_t sensor_family_free(sensor_family_t * fam, sensor_ctx_t * sctx) {
+    sensor_status_t ret = SENSOR_SUCCESS;
+    
+    if (fam == NULL) {
+        return SENSOR_ERROR;
+    }    
+    if (fam->info->free && fam->info->free(fam) != SENSOR_SUCCESS) {
+        LOG_ERROR(sctx->log, "sensor family %s cannot be freed", fam->info->name);
+        ret = SENSOR_NOT_SUPPORTED;
+    }
+    logpool_release(sctx->logpool, fam->log);
+    free(fam);
+    return ret;
+}
+
+/* ************************************************************************ */
 static sensor_status_t sensor_family_register_unlocked(
                             sensor_ctx_t *              sctx,
                             const sensor_family_info_t *fam_info,
@@ -356,11 +371,7 @@ static sensor_status_t sensor_family_register_unlocked(
     /* finally register family */
     if ((sctx->families = slist_prepend(sctx->families, fam)) == NULL) {
         LOG_ERROR(sctx->log, "sensor family %s cannot be registered", fam->info->name);
-        if (fam->info->free && fam->info->free(fam) != SENSOR_SUCCESS) {
-            LOG_ERROR(sctx->log, "sensor family %s cannot be freed", fam->info->name);
-        }
-        logpool_release(sctx->logpool, fam->log);
-        free(fam);
+        sensor_family_free(fam, sctx);
         return SENSOR_ERROR;
     }
 
@@ -372,7 +383,7 @@ static sensor_status_t sensor_family_register_unlocked(
 }
 
 /* ************************************************************************ */
-sensor_ctx_t * sensor_init(logpool_t * logs) {
+sensor_ctx_t * sensor_init(logpool_t * logs, unsigned int flags) {
     size_t          nb_fam  = sizeof(s_families_info) / sizeof(*s_families_info);
     sensor_ctx_t *  sctx;
 
@@ -380,6 +391,7 @@ sensor_ctx_t * sensor_init(logpool_t * logs) {
     if ((sctx = calloc(1, sizeof(sensor_ctx_t))) == NULL) {
         return NULL;
     }
+    sctx->flags = (flags & (SIF_RESERVED-1));
 
     /* alloc mutexes */
     if (pthread_rwlock_init(&(sctx->rwlock), NULL) != 0
@@ -407,7 +419,7 @@ sensor_ctx_t * sensor_init(logpool_t * logs) {
 
     /* init logpool / log */
     if (logs == NULL) {
-        sctx->flags |= SFC_FREE_LOGPOOL;
+        sctx->flags |= SPF_FREE_LOGPOOL;
         logs = logpool_create();
     }
     sctx->logpool = logs;
@@ -636,17 +648,13 @@ sensor_status_t sensor_free(sensor_ctx_t * sctx) {
 
     /* free families */
     SLIST_FOREACH_DATA(sctx->families, fam, sensor_family_t *) {
-        if (fam->info->free && fam->info->free(fam) != SENSOR_SUCCESS) {
-            LOG_ERROR(sctx->log, "sensor family %s cannot be freed", fam->info->name);
-        }
-        logpool_release(sctx->logpool, fam->log);
-        free(fam);
+        sensor_family_free(fam, sctx);
     }
     slist_free(sctx->families, NULL);
 
     /* release / free logs & logpool */
     logpool_release(sctx->logpool, sctx->log);
-    if ((sctx->flags & SFC_FREE_LOGPOOL) != 0) {
+    if ((sctx->flags & SPF_FREE_LOGPOOL) != 0) {
         logpool_free(sctx->logpool);
     }
 
@@ -926,6 +934,7 @@ void sensor_list_free(sensor_ctx_t *sctx) {
         return ;
     }
     sensor_lock(sctx, SENSOR_LOCK_WRITE);
+    sensor_watch_free(sctx);
     avltree_clear(sctx->sensors);
     if (sctx->sensorlist != NULL) {
         slist_free(sctx->sensorlist, sensor_desc_free_one);
@@ -2071,12 +2080,65 @@ static inline sensor_status_t sensor_update_check_internal(
     return SENSOR_NOT_SUPPORTED;
 }
 
+
 /* ************************************************************************ */
-sensor_status_t sensor_init_wait(sensor_ctx_t * sctx) {
+static sensor_status_t sensor_init_wait_desc_unlocked(sensor_desc_t * desc, int b_onlywatched) {
     sensor_status_t     ret;
     sensor_sample_t *   sample;
     sensor_watch_t      watch = SENSOR_WATCH_INITIALIZER(1000, NULL);
     char                label[SENSOR_LABEL_SIZE];
+    int                 bdelete = 0;
+    
+    if (desc->label != s_sensor_loading_label) {
+        return SENSOR_SUCCESS;
+    }
+    snprintf(label, PTR_COUNT(label), "%s/*", SENSOR_DESC_FAMNAME(desc));
+    if ((sample = sensor_watch_find_unlocked(desc->family->sctx, label, SSF_NONE,
+                                             NULL, NULL, NULL)) == NULL) {
+        if (b_onlywatched)
+            return SENSOR_NOT_SUPPORTED;                                     
+        if ((sample = sensor_watch_add_desc_unlocked(desc->family->sctx, desc, SSF_NOPATTERN, &watch))
+                == NULL) {
+            return SENSOR_ERROR;
+        }
+        bdelete = 1;
+        snprintf(label, PTR_COUNT(label), "%s/%s",
+                 SENSOR_DESC_FAMNAME(desc), SENSOR_DESC_LABEL(desc));
+    }
+
+    LOG_INFO(desc->family->sctx->log, "waiting until %s is loaded...", SENSOR_DESC_FAMNAME(desc));
+    
+    /* event SWE_FAMILY_WAIT_LOAD will ask family to wait until it is fully loaded */
+    if (desc->family->info->notify != NULL) {
+        desc->family->info->notify(SWE_FAMILY_WAIT_LOAD, desc->family, NULL, NULL);
+    }
+    while ((ret = desc->family->info->update(sample, NULL)) == SENSOR_LOADING) {
+        LOG_DEBUG(desc->family->sctx->log, "waiting for %s", SENSOR_DESC_FAMNAME(desc));
+        usleep(1000);
+    }
+
+    if (bdelete) {
+        sensor_watch_del_unlocked(desc->family->sctx, label, SSF_NOPATTERN);
+    }
+    if (ret == SENSOR_RELOAD_FAMILY) {
+        sensor_family_reload(desc->family);
+    }
+    return ret;
+}
+
+/* ************************************************************************ */
+sensor_status_t sensor_init_wait_desc(sensor_desc_t * desc, int b_onlywatched) {
+    sensor_status_t ret;
+    if (desc == NULL)
+        return SENSOR_ERROR;
+    sensor_lock(desc->family->sctx, SENSOR_LOCK_WRITE);
+    ret = sensor_init_wait_desc_unlocked(desc, b_onlywatched);
+    sensor_unlock(desc->family->sctx);    
+    return ret;
+}
+
+/* ************************************************************************ */
+sensor_status_t sensor_init_wait(sensor_ctx_t * sctx, int b_onlywatched) {
     int                 breload;
 
     if (sctx == NULL) {
@@ -2084,37 +2146,12 @@ sensor_status_t sensor_init_wait(sensor_ctx_t * sctx) {
     }
     sensor_lock(sctx, SENSOR_LOCK_WRITE);
 
-    LOG_INFO(sctx->log, "waiting until sensors are loaded...");
+    LOG_INFO(sctx->log, "waiting until%s sensors are loaded...", b_onlywatched ? " watched" : "");
 
     do {
         breload = 0;
         SLISTC_FOREACH_DATA(sctx->sensorlist, desc, sensor_desc_t *) {
-            int bdelete = 0;
-            if (desc->label != s_sensor_loading_label) {
-                continue ;
-            }
-            snprintf(label, PTR_COUNT(label), "%s/*", SENSOR_DESC_FAMNAME(desc));
-            if ((sample = sensor_watch_find_unlocked(sctx, label, SSF_NONE,
-                                                     NULL, NULL, NULL)) == NULL) {
-                if ((sample = sensor_watch_add_desc_unlocked(sctx, desc, SSF_NOPATTERN, &watch))
-                        == NULL) {
-                    continue ;
-                }
-                bdelete = 1;
-                snprintf(label, PTR_COUNT(label), "%s/%s",
-                         SENSOR_DESC_FAMNAME(desc), SENSOR_DESC_LABEL(desc));
-            }
-
-            /* Sure that an event implementation would be better, ... TODO */
-            while ((ret = desc->family->info->update(sample, NULL)) != SENSOR_RELOAD_FAMILY) {
-                usleep(100000);
-            }
-
-            if (bdelete) {
-                sensor_watch_del_unlocked(sctx, label, SSF_NOPATTERN);
-            }
-            if (ret == SENSOR_RELOAD_FAMILY) {
-                sensor_family_reload(desc->family);
+            if (sensor_init_wait_desc_unlocked(desc, b_onlywatched) == SENSOR_RELOAD_FAMILY) {
                 breload = 1;
                 break ;
             }
@@ -2254,6 +2291,11 @@ sensor_status_t sensor_property_init(sensor_property_t * property, const char * 
 
 /***************************************************************************
  * SENSOR_VALUE : src/sensor_value.c
+ ***************************************************************************/
+
+
+/***************************************************************************
+ * SENSOR_PRIVATE :
  ***************************************************************************/
 
 

@@ -21,11 +21,10 @@
  * Public header for sensor management.
  *
  * Usage:
- * (INIT) sensor_context = sensor_init(NULL);
+ * (INIT) sensor_context = sensor_init(NULL, SIF_DEFAULT);
  * (A) from scratch
  *    1. Get the list of supported sensors
  *       list = sensor_list_get()
- *         (clean with sensor_list_free)
  *
  *    2. Register one or several watchs
  *       watch_properties = SENSOR_WATCH_INITIALIZER(timer_ms, NULL)
@@ -94,6 +93,14 @@ typedef struct sensor_desc_s sensor_desc_t;
 /** sensor sample struct to be defined below */
 typedef struct sensor_sample_s sensor_sample_t;
 
+/** sensor init flags (for sensor_init()) */
+typedef enum {
+    SIF_NONE        = 0,
+    //SIF_...       = 1 << 0
+    SIF_RESERVED    = 1 << 16, // last
+    SIF_DEFAULT     = SIF_NONE    
+} sensor_init_flag_t;
+
 /** RFU/TBD/TODO sensor sample watch events
  * for sensor_watch_callback_t and sensor_family_t.notify() */
 typedef enum {
@@ -103,6 +110,8 @@ typedef enum {
     SWE_WATCH_ADDED     = 1 << 3,
     SWE_WATCH_REPLACED  = 1 << 4,
     SWE_WATCH_DELETING  = 1 << 5,
+    SWE_FAMILY_WAIT_LOAD= 1 << 10,
+    SWE_RESERVED        = 1 << 16 // last, custom events for families.
 } sensor_watch_event_t;
 
 /** RFU/TBD event_data type for sensor_watch_callback_t and sensor_family_t.notify() */
@@ -273,13 +282,16 @@ extern "C" {
  * @param logs the preinitialized per-module log pool. can be NULL.
  * @return sensor handle
  */
-sensor_ctx_t *  sensor_init(logpool_t * logs);
+sensor_ctx_t *  sensor_init(logpool_t * logs, unsigned int flags);
 
 /** Clean the sensor handle */
 sensor_status_t sensor_free(sensor_ctx_t * sctx);
 
 /** wait until all sensors have been loaded */
-sensor_status_t sensor_init_wait(sensor_ctx_t * sctx);
+sensor_status_t sensor_init_wait(sensor_ctx_t * sctx, int b_onlywatched);
+
+/** wait until a specific sensor has been loaded */
+sensor_status_t sensor_init_wait_desc(sensor_desc_t * desc, int b_onlywatched);
 
 /** locking stuff */
 typedef enum {
@@ -520,8 +532,8 @@ sensor_status_t sensor_family_register(
                     const sensor_family_info_t *    fam_info);
 
 /** loading family requests libvsensors to create a temporary family desc list
- * When family will be loaded its 'update()' function will
- * return SENSOR_RELOAD_FAMILY */
+ * When family will be loaded, its 'update()' function will return 
+ * SENSOR_RELOAD_FAMILY. sensor_family_t.notify can be used to wait readyness. */
 slist_t *       sensor_family_loading_list(sensor_family_t * family);
 
 /* ************************************************************************
