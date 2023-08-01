@@ -45,6 +45,7 @@
 #include "libvsensors/sensor.h"
 
 #include "smc.h"
+#include "smc_private.h"
 
 /* ************************************************************************ */
 sensor_status_t     sysdep_smc_support(sensor_family_t * family, const char * label);
@@ -72,6 +73,7 @@ int                 sysdep_smc_writekey(
                         void **         key_info,
                         void *          input_buffer,
                         uint32_t        input_size,
+                        const sensor_value_t* value,
                         void *          smc_handle,
                         log_t *         log);
 
@@ -167,6 +169,8 @@ static sensor_status_t smc_family_init(sensor_family_t *family) {
     priv->free_list = NULL;
     priv->smc_handle = NULL;
     priv->descs = NULL;
+    priv->output_bufsz = 0;
+    priv->value_offset = 0;
     if (sysdep_smc_open(&priv->smc_handle, family->log,
                         &(priv->output_bufsz), &(priv->value_offset)) != SENSOR_SUCCESS) {
        LOG_ERROR(family->log, "SMCOpen() failed!");
@@ -195,28 +199,30 @@ static void * smc_list_job(void * vdata) {
 
     /* restore killmode */
     vjob_killmode(old_ena, old_asy, NULL, NULL);
-
+    
     if (ret == SENSOR_SUCCESS) {
         return (void*)0;
     }
     return VJOB_ERR_RESULT;
 }
 
+static slist_t * smc_family_loading_list(sensor_family_t * family) {
+    smc_priv_t *    priv = (smc_priv_t *) family->priv;
+    
+    if (priv->jobs == NULL) {
+        priv->jobs = slist_prepend(priv->jobs, vjob_run(smc_list_job, family));
+        if (priv->jobs == NULL || priv->jobs->data == NULL) {
+            LOG_WARN(family->log, "cannot run listing job");
+            priv->jobs = slist_remove_ptr(priv->jobs, priv->jobs->data);
+            return NULL;
+        }
+    }
+    return sensor_family_loading_list(family);
+}
+
 static slist_t * smc_family_list(sensor_family_t *family) {
     smc_priv_t *    priv = (smc_priv_t *) family->priv;
     slist_t *       list = NULL, * last = NULL;
-
-    if (priv->descs == NULL || priv->jobs != NULL) {
-        if (priv->jobs == NULL) {
-            priv->jobs = slist_prepend(priv->jobs, vjob_run(smc_list_job, family));
-            if (priv->jobs == NULL || priv->jobs->data == NULL) {
-                LOG_WARN(family->log, "cannot run listing job");
-                priv->jobs = slist_remove_ptr(priv->jobs, priv->jobs->data);
-                return NULL;
-            }
-        }
-        return sensor_family_loading_list(family);
-    }
 
     SLIST_FOREACH_DATA(priv->descs, desc, sensor_desc_t *) {
         last = slist_append(last, desc);
@@ -244,6 +250,7 @@ static sensor_status_t smc_family_write(const sensor_desc_t * sensordesc, const 
 
 /* ************************************************************************ */
 extern const sensor_family_info_t g_sensor_family_smc_loaded;
+
 static sensor_status_t smc_family_loading_update(sensor_sample_t *sensor, const struct timeval * now) {
     smc_priv_t * priv = (smc_priv_t *) sensor->desc->family->priv;
     (void)now;
@@ -254,7 +261,7 @@ static sensor_status_t smc_family_loading_update(sensor_sample_t *sensor, const 
             vjob_free(to_free->data);
             slist_free_1(to_free, NULL);
             sensor->desc->family->info = &g_sensor_family_smc_loaded;
-            LOG_VERBOSE(sensor->desc->family->log, "RELOAD_FAMILY");
+            LOG_VERBOSE(sensor->desc->family->log, "RELOAD_FAMILY");            
             return SENSOR_RELOAD_FAMILY;
         } else {
             return SENSOR_LOADING;
@@ -286,9 +293,9 @@ const sensor_family_info_t g_sensor_family_smc = {
     .init = smc_family_init,
     .free = smc_family_free,
     .update = smc_family_loading_update,
-    .list = smc_family_list,
+    .list = smc_family_loading_list,
     .notify = sensor_family_loading_notify,
-    .write = smc_family_write
+    .write = NULL
 };
 const sensor_family_info_t g_sensor_family_smc_loaded = {
     .name = SMC_FAMILY_NAME,
@@ -301,9 +308,6 @@ const sensor_family_info_t g_sensor_family_smc_loaded = {
 };
 
 /* ************************************************************************************* */
-
-#define SMC_TYPE(str)       ((uint32_t)(((unsigned) ((str)[0])) << 24 | ((unsigned) ((str)[1])) << 16 \
-                                        | ((unsigned) ((str)[2])) << 8 | (unsigned) ((str)[3])))
 
 #define DATATYPE_FP1F       SMC_TYPE("fp1f")
 #define DATATYPE_FP4C       SMC_TYPE("fp4c")
@@ -569,7 +573,7 @@ static const smc_sensor_info_t s_smc_known_sensors[] = {
 };
 
 /* ************************************************************************ */
-static unsigned long _str32toul(const char * int32, unsigned int size, int base) {
+unsigned long _str32toul(const char * int32, unsigned int size, int base) {
     unsigned long   total = 0;
     unsigned int    i;
 
@@ -584,7 +588,7 @@ static unsigned long _str32toul(const char * int32, unsigned int size, int base)
 }
 
 /* ************************************************************************ */
-static unsigned int _ultostr32(char * str32, unsigned int maxsize,
+unsigned int _ultostr32(char * str32, unsigned int maxsize,
                                unsigned long ul, unsigned int size) {
     unsigned int len;
 
@@ -969,7 +973,7 @@ static sensor_status_t smc_getformatfun(smc_desc_key_t * key, uint32_t value_typ
         if (value_type != DATATYPE_PCH8) {
             char stype[5];
             _ultostr32(stype, sizeof(stype) / sizeof(*stype), value_type, sizeof(value_type));
-            LOG_DEBUG(family->log, "warning: datatype '%s' not supported, using bytes", stype);
+            LOG_DEBUG(family->log, "warning: datatype '%s' (sz:%u) not supported, using bytes", stype, value_size);
         }
         #endif
         value->data.b.size = 0;
@@ -985,7 +989,8 @@ static sensor_status_t smc_getformatfun(smc_desc_key_t * key, uint32_t value_typ
             value->data.b.maxsize = 0;
         }
         value->type = SMC_SV_TYPE_BYTES;
-        key->format_fun = smc_format_bytes; key->write_fun = smc_write_bytes;
+        key->format_fun = smc_format_bytes; 
+        key->write_fun = smc_write_bytes;
     }
     return SENSOR_SUCCESS;
 }
@@ -1031,7 +1036,7 @@ static sensor_status_t smc_getsensorvalue(
     smc_priv_t *    priv = (smc_priv_t *) family->priv;
     unsigned int    value_size;
     char *          value_bytes = priv->smc_buffer + priv->value_offset;
-
+        
     value_size = sysdep_smc_readkey(key->value_key, NULL, &(key->key_info),
                                     priv->smc_buffer, priv->smc_handle, family->log);
 
@@ -1062,9 +1067,9 @@ static sensor_status_t  smc_putsensorvalue(
         return SENSOR_ERROR;
     }
 
-    LOG_BUFFER(LOG_LVL_DEBUG, family->log, value_bytes, value_size, " ");
+    LOG_BUFFER(LOG_LVL_DEBUG, family->log, value_bytes, value_size, "writing: ");
     ret = sysdep_smc_writekey(key->value_key, NULL, &(key->key_info),
-                              /*priv->smc_buffer*/value_bytes, key->value_size, priv->smc_handle, family->log);
+                              /*priv->smc_buffer*/value_bytes, key->value_size, value, priv->smc_handle, family->log);
 
     if (ret != SENSOR_SUCCESS) {
         LOG_VERBOSE(family->log, "cannot write SMC key '%08x' (bytes:%lx,key_info:%lx,sz:%u,refsz:%u",
@@ -1175,7 +1180,8 @@ static sensor_status_t smc_list(sensor_family_t * family) {
                         &(key->key_info), priv->smc_buffer, priv->smc_handle, family->log);
 
         if (value_size < 0) {
-            LOG_WARN(family->log, "cannot get smc key info for #%u", i);
+            if (value_size != SENSOR_NOT_SUPPORTED)
+                LOG_WARN(family->log, "cannot get smc key info for #%u", i);
             smc_free_desc(desc);
             continue ;
         }

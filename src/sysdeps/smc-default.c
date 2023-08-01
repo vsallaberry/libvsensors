@@ -39,8 +39,8 @@ int sysdep_smc_open(void ** psmc_handle, log_t *log,
     return SENSOR_ERROR;
 }
 
-int                 sysdep_smc_close(void ** psmc_handle, log_t *log) {
-    (void)psmc_handle;
+int                 sysdep_smc_close(void * smc_handle, log_t *log) {
+    (void)smc_handle;
     (void)log;
     return SENSOR_ERROR;
 }
@@ -85,6 +85,7 @@ int             sysdep_smc_writekey(
                     void **         key_info,
                     void *          input_buffer,
                     uint32_t        input_size,
+                    const sensor_value_t* value,
                     void *          smc_handle,
                     log_t *         log) {
     (void)key;
@@ -92,6 +93,7 @@ int             sysdep_smc_writekey(
     (void)key_info;
     (void)input_buffer;
     (void)input_size;
+    (void)value;
     (void)smc_handle;
     (void)log;
     return SENSOR_ERROR;

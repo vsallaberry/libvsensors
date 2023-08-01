@@ -54,6 +54,8 @@
 struct log_s;
 typedef struct log_s log_t;
 typedef void sensor_family_t
+struct sensor_value_s;
+typedef struct sensor_value_s sensor_value_t;
 # define LOG_LVL_DEBUG                  5
 # define LOG_LVL_SCREAM                 6
 # define INFO(...)                      (fprintf(stderr, __VA_ARGS__))
@@ -120,6 +122,7 @@ typedef struct {
     SMCBytes_t              bytes;
 } SMCKeyData_t;
 
+struct sensor_value_s;
 
 /* ************************************************************************ */
 /* Cache the key_info to avoid multiple calls to smc_call()
@@ -417,6 +420,7 @@ int             sysdep_smc_writekey(
                     void **         key_info,
                     void *          input_buffer,
                     uint32_t        input_size,
+                    const sensor_value_t* value, 
                     void *          smc_handle,
                     log_t *         log)
 {
@@ -426,6 +430,7 @@ int             sysdep_smc_writekey(
     SMCKeyData_t            output_data;
     //SMCKeyData_t *          output_data = (SMCKeyData_t *) output_buffer;
     unsigned int            value_size;
+    (void) value;
 
     memset(&input_data, 0, sizeof(SMCKeyData_t));
     memset(&output_data, 0, sizeof(SMCKeyData_t));
