@@ -28,14 +28,14 @@
 
 /** function freeing a single common_event_t */
 static void common_event_free(void * vevent) {
-    common_event_t * event = (common_event_t *) vevent;
+    sensor_common_event_t * event = (sensor_common_event_t *) vevent;
     if (event) {
         switch (event->type) {
         case CQT_DEVICE:
             if (event->u.dev.name)
-                free(event->u.dev.name);            
+                free(event->u.dev.name);
             if (event->u.dev.type)
-                free(event->u.dev.type);            
+                free(event->u.dev.type);
             break ;
         default:
             break ;
@@ -50,12 +50,12 @@ static sensor_status_t family_free(sensor_family_t *family) {
         common_priv_t * priv = (common_priv_t *) family->priv;
 
         sysdep_common_destroy(family);
-        
+
         if (priv->thread != NULL) {
             vthread_stop(priv->thread);
         }
         slist_free(priv->event_queue, common_event_free);
-        
+
         family->priv = NULL;
         free(priv);
     }
@@ -65,7 +65,7 @@ static sensor_status_t family_free(sensor_family_t *family) {
 /** family-specific init */
 static sensor_status_t family_init(sensor_family_t *family) {
     common_priv_t * priv;
-    
+
     // Sanity checks done before in sensor_init()
     if (family->priv != NULL) {
         LOG_ERROR(family->log, "error: %s data already initialized", family->info->name);
@@ -85,7 +85,7 @@ static sensor_status_t family_init(sensor_family_t *family) {
         LOG_ERROR(family->log, "cannot initialize the %s mutex", family->info->name);
         family_free(family);
         return SENSOR_ERROR;
-    }    
+    }
     if (sysdep_common_init(family) != SENSOR_SUCCESS) {
         LOG_ERROR(family->log, "cannot initialize system specific %s", family->info->name);
         family_free(family);
@@ -105,12 +105,13 @@ const sensor_family_info_t g_sensor_family_common = {
     .update = NULL,
     .list = NULL,
     .notify = NULL,
-    .write = NULL
+    .write = NULL,
+    .free_desc = NULL
 };
 
-/** get common event queue under lock 
+/** get common event queue under lock
   * when queue is not NULL, common_queue_release() must be called */
-static common_queue_t common_queue_get(sensor_family_t * common_fam) {
+static sensor_common_queue_t common_queue_get(sensor_family_t * common_fam) {
     if (common_fam != NULL && common_fam->priv != NULL) {
         common_priv_t * priv = (common_priv_t *) common_fam->priv;
         if (priv->event_queue != NULL) {
@@ -126,11 +127,11 @@ static common_queue_t common_queue_get(sensor_family_t * common_fam) {
 }
 
 /** set common event queue : (no lock done here)) */
-static sensor_status_t common_queue_set(sensor_family_t * common_fam, common_queue_t queue) {
+static sensor_status_t common_queue_set(sensor_family_t * common_fam, sensor_common_queue_t queue) {
     if (common_fam != NULL && common_fam->priv != NULL) {
         common_priv_t * priv = (common_priv_t *) common_fam->priv;
-        
-        priv->event_queue = queue;        
+
+        priv->event_queue = queue;
         return SENSOR_SUCCESS;
     }
     return SENSOR_ERROR;
@@ -140,8 +141,8 @@ static sensor_status_t common_queue_set(sensor_family_t * common_fam, common_que
 static sensor_status_t common_queue_release(sensor_family_t * common_fam) {
     if (common_fam != NULL && common_fam->priv != NULL) {
         common_priv_t * priv = (common_priv_t *) common_fam->priv;
-        int             ret;       
-        
+        int             ret;
+
         ret = pthread_mutex_unlock(&priv->mutex);
         return ret == 0 ? SENSOR_SUCCESS : SENSOR_ERROR;
     }
@@ -150,22 +151,22 @@ static sensor_status_t common_queue_release(sensor_family_t * common_fam) {
 
 /** add an event to the common event queue
  *  event must be allocated and will be freed with common_event_free() */
-sensor_status_t     sensor_common_queue_add(sensor_ctx_t * sctx, common_event_t * event) {
+sensor_status_t     sensor_common_queue_add(sensor_ctx_t * sctx, sensor_common_event_t * event) {
     sensor_family_t * common = sensor_family_common(sctx);
-    
+
     if (common == NULL || common->priv == NULL || event == NULL) {
         return SENSOR_ERROR;
     }
     common_priv_t *     priv = (common_priv_t *) common->priv;
-    sensor_status_t     ret;    
-    
+    sensor_status_t     ret;
+
     pthread_mutex_lock(&priv->mutex);
     // LOCKED
     priv->event_queue = slist_append(priv->event_queue, event);
     ret = priv->event_queue != NULL ? SENSOR_SUCCESS : SENSOR_ERROR;
     // UNLOCKING
     pthread_mutex_unlock(&priv->mutex);
-  
+
     return ret;
 }
 
@@ -175,39 +176,37 @@ sensor_status_t     sensor_common_queue_add(sensor_ctx_t * sctx, common_event_t 
   * + SENSOR_SUCCESS: event is deleted from the queue */
 sensor_status_t sensor_common_queue_process(
                     sensor_ctx_t * sctx,
-                    sensor_status_t (*fun)(common_event_t * event, void * user_data),
-                    void * user_data) {    
-    sensor_family_t *   common = sensor_family_common(sctx);
-    common_queue_t      queue; 
-    sensor_status_t     ret = SENSOR_SUCCESS;
-       
+                    sensor_status_t (*fun)(sensor_common_event_t * event, void * user_data),
+                    void * user_data) {
+    sensor_family_t *       common = sensor_family_common(sctx);
+    sensor_common_queue_t   queue;
+    sensor_status_t         ret = SENSOR_SUCCESS;
+
     // get common queue and LOCK IT
-    queue = common_queue_get(common);   
-     
+    queue = common_queue_get(common);
+
     if (queue == NULL) {
         return SENSOR_SUCCESS;
     }
-    
+
     LOG_SCREAM(common->log, "QUEUE size: %u", slist_length(queue));
-    
-    for (common_queue_t elt = queue, prev = NULL, to_free; elt != NULL; /* no incr */) {
-        common_event_t *    event = elt->data;        
-        
-        LOG_SCREAM(common->log, "checking QUEUE: type %d, %s EVENT: %s", event->type, 
+
+    for (sensor_common_queue_t elt = queue, prev = NULL, to_free; elt != NULL; /* no incr */) {
+        sensor_common_event_t * event = elt->data;
+
+        LOG_SCREAM(common->log, "checking QUEUE: type %d, %s EVENT: %s", event->type,
                    event->u.dev.action == CDA_ADD ? "add" : "remove", event->u.dev.name);
-        
+
         ret = fun(event, user_data);
-        if (ret == SENSOR_ERROR) {
-            break ;
-        } else if (ret == SENSOR_NOT_SUPPORTED) {
+        if (ret == SENSOR_NOT_SUPPORTED) {
             ret = SENSOR_SUCCESS;
             prev = elt;
             elt = elt->next;
             continue ;
         }
-                    
+
         if (prev == NULL) {
-            queue = elt->next;    
+            queue = elt->next;
         } else {
             prev->next = elt->next;
         }
@@ -216,9 +215,13 @@ sensor_status_t sensor_common_queue_process(
         }
         to_free = elt;
         elt = elt->next;
-        slist_free_1(to_free, common_event_free);                   
-    }  
-    common_queue_set(common, queue);  
+        slist_free_1(to_free, common_event_free);
+        if (ret == SENSOR_ERROR) {
+            LOG_WARN(common->log, "error processing event, removing it and stopping loop");
+            break ;
+        }
+    }
+    common_queue_set(common, queue);
     common_queue_release(common);
     return ret;
 }

@@ -90,7 +90,7 @@ static const sensor_family_info_t * s_families_info[] = {
     NULL
 };
 
-typedef enum {    
+typedef enum {
     SPF_FREE_LOGPOOL    = SIF_RESERVED << 0,
 } sensors_priv_flag_t;
 
@@ -151,7 +151,8 @@ static sensor_status_t sensor_list_build(sensor_ctx_t *sctx);
 static int sensorwatchparam_cmp(const void * vw1, const void * vw2) {
     sensor_watchparam_entry_t * w1 = (sensor_watchparam_entry_t *) vw1;
     sensor_watchparam_entry_t * w2 = (sensor_watchparam_entry_t *) vw2;
-    long ret;
+    size_t  len1 = 0, len2 = 0;
+    ssize_t ret;
 
     if ((ret = (long)(w1->watch.update_interval.tv_sec
                       - w2->watch.update_interval.tv_sec)) != 0) {
@@ -165,6 +166,9 @@ static int sensorwatchparam_cmp(const void * vw1, const void * vw2) {
                       sizeof(sensor_watch_callback_t))) != 0) {
         return ret;
     }
+    if ((ret = (size_t) w1->watch.callback_data - (size_t) w2->watch.callback_data) != 0) {
+        return ret;
+    }
     for (unsigned int i = 0; i < SENSOR_LEVEL_NB; ++i) {
         if ((ret = w1->watch.update_levels[i].type
                  - w2->watch.update_levels[i].type) != 0) {
@@ -174,6 +178,29 @@ static int sensorwatchparam_cmp(const void * vw1, const void * vw2) {
                                         &(w2->watch.update_levels[i]))) != 0) {
             return ret;
         }
+    }
+    for (sensor_property_t * prop1 = w1->watch.properties; prop1; ++prop1, ++len1)
+        ; /* nothing */
+    for (sensor_property_t * prop2 = w2->watch.properties; prop2; ++prop2, ++len2)
+        ; /* nothing */
+    if (len1 != len2)
+        return len1 - len2;
+    for (sensor_property_t * prop1 = w1->watch.properties, *prop2; prop1; ++prop1) {
+        ret = 0;
+        for (prop2 = w2->watch.properties; prop2; ++prop2) {
+            int cmp = strcmp(prop1->name, prop2->name);
+            if (cmp != 0) {
+                if (ret == 0)
+                    ret = cmp; // keep first name compare value, will be cmp return if not found.
+                continue ; // not found, try next prop2
+            }
+            cmp = sensor_value_compare(&prop1->value, &prop2->value);
+            if (cmp == 0)
+                break ;
+            return cmp; // same name but different value: compare failed.
+        }
+        if (prop2 == NULL)
+            return ret ? ret : 1;
     }
     return 0;
 }
@@ -317,6 +344,8 @@ static void sensor_desc_free_one(void * vdata) {
         free(sensor);
     } else if (sensor->label == s_sensor_loading_label) {
         free(sensor);
+    } else if (sensor->family->info->free_desc) {
+        sensor->family->info->free_desc(sensor);
     }
 }
 
@@ -328,10 +357,10 @@ static void sensor_desc_free_one(void * vdata) {
 /* ************************************************************************ */
 static sensor_status_t sensor_family_free(sensor_family_t * fam, sensor_ctx_t * sctx) {
     sensor_status_t ret = SENSOR_SUCCESS;
-    
+
     if (fam == NULL) {
         return SENSOR_ERROR;
-    }    
+    }
     if (fam->info->free && fam->info->free(fam) != SENSOR_SUCCESS) {
         LOG_ERROR(sctx->log, "sensor family %s cannot be freed", fam->info->name);
         ret = SENSOR_NOT_SUPPORTED;
@@ -382,7 +411,7 @@ static sensor_status_t sensor_family_register_unlocked(
     if (sctx->common == NULL && fam_info == &g_sensor_family_common) {
         sctx->common = fam;
     }
-    
+
     LOG_INFO(sctx->log, "%s: loaded.", fam->info->name);
     if (p_fam != NULL)
         *p_fam = fam;
@@ -2070,7 +2099,7 @@ static inline sensor_status_t sensor_update_check_internal(
                 /* nothing except callback */
                 if (sensor->watch->callback != NULL) {
                     sensor->watch->callback(SWE_WATCH_UPDATED, sensor->desc->family->sctx,
-                                            sensor, NULL);
+                                            sensor, NULL, sensor->watch->callback_data);
                 }
             }
             else if (ret == SENSOR_SUCCESS || ret == SENSOR_LOADING) {
@@ -2088,13 +2117,14 @@ static inline sensor_status_t sensor_update_check_internal(
                 }
             } else {
                 if (ret == SENSOR_RELOAD_FAMILY) {
-                    sensor_family_t *       family      = sensor->desc->family;
-                    sensor_watch_callback_t callback    = sensor->watch->callback;
+                    sensor_family_t *       family          = sensor->desc->family;
+                    sensor_watch_callback_t callback        = sensor->watch->callback;
+                    void *                  callback_data   = sensor->watch->callback_data;
                     sensor_lock_upgrade(family->sctx);
                     sensor_family_reload(family);
                     if (callback != NULL) {
                         family->sctx->evdata->family = family;
-                        callback(SWE_FAMILY_RELOADED, family->sctx, NULL, family->sctx->evdata);
+                        callback(SWE_FAMILY_RELOADED, family->sctx, NULL, family->sctx->evdata, callback_data);
                     }
                     return ret;
                 }
@@ -2118,7 +2148,7 @@ static sensor_status_t sensor_init_wait_desc_unlocked(sensor_desc_t * desc, int 
     sensor_watch_t      watch = SENSOR_WATCH_INITIALIZER(1000, NULL);
     char                label[SENSOR_LABEL_SIZE];
     int                 bdelete = 0;
-    
+
     if (desc->label != s_sensor_loading_label) {
         return SENSOR_SUCCESS;
     }
@@ -2126,7 +2156,7 @@ static sensor_status_t sensor_init_wait_desc_unlocked(sensor_desc_t * desc, int 
     if ((sample = sensor_watch_find_unlocked(desc->family->sctx, label, SSF_NONE,
                                              NULL, NULL, NULL)) == NULL) {
         if (b_onlywatched)
-            return SENSOR_NOT_SUPPORTED;                                     
+            return SENSOR_NOT_SUPPORTED;
         if ((sample = sensor_watch_add_desc_unlocked(desc->family->sctx, desc, SSF_NOPATTERN, &watch))
                 == NULL) {
             return SENSOR_ERROR;
@@ -2137,7 +2167,7 @@ static sensor_status_t sensor_init_wait_desc_unlocked(sensor_desc_t * desc, int 
     }
 
     LOG_INFO(desc->family->sctx->log, "waiting until %s is loaded...", SENSOR_DESC_FAMNAME(desc));
-    
+
     /* event SWE_FAMILY_WAIT_LOAD will ask family to wait until it is fully loaded */
     if (desc->family->info->notify != NULL) {
         desc->family->info->notify(SWE_FAMILY_WAIT_LOAD, desc->family, NULL, NULL);
@@ -2163,7 +2193,7 @@ sensor_status_t sensor_init_wait_desc(sensor_desc_t * desc, int b_onlywatched) {
         return SENSOR_ERROR;
     sensor_lock(desc->family->sctx, SENSOR_LOCK_WRITE);
     ret = sensor_init_wait_desc_unlocked(desc, b_onlywatched);
-    sensor_unlock(desc->family->sctx);    
+    sensor_unlock(desc->family->sctx);
     return ret;
 }
 

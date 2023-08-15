@@ -29,11 +29,11 @@
 /****************************************************************************/
 static void             file_watch_free(void * vfile);
 static sensor_status_t  file_watch_del(
-                            sensor_family_t * family, 
+                            sensor_family_t * family,
                             const char * path);
 static sensor_status_t  file_watch_add(
-                            sensor_family_t * family, 
-                            const char * path, 
+                            sensor_family_t * family,
+                            const char * path,
                             unsigned int flags);
 
 /****************************************************************************/
@@ -43,9 +43,9 @@ static sensor_status_t family_free(sensor_family_t *family) {
         file_priv_t * priv = (file_priv_t *) family->priv;
 
         slist_free(priv->files, file_watch_free);
-        
+
         sysdep_file_destroy(family);
-        
+
         family->priv = NULL;
         free(priv);
     }
@@ -107,20 +107,20 @@ static sensor_status_t family_update(sensor_sample_t *sensor, const struct timev
 static sensor_status_t sensor_family_notify(
                     unsigned int event, struct sensor_family_s * family,
                     struct sensor_sample_s * sample, sensor_watch_ev_data_t * ev_data) {
-    sensor_status_t ret = SENSOR_SUCCESS;    
+    sensor_status_t ret = SENSOR_SUCCESS;
     (void)sample;
     (void)ev_data;
-    
+
     if ((event & (SWE_WATCH_DELETING | SWE_WATCH_REPLACED)) != 0) {
         // TODO
         ret = file_watch_del(family, NULL); // TODO
     }
-    
+
     if ((event & (SWE_WATCH_ADDED | SWE_WATCH_REPLACED)) != 0) {
         // TODO
         ret = file_watch_add(family, NULL, 0); // TODO
     }
-    
+
     return ret;
 }
 
@@ -132,7 +132,8 @@ const sensor_family_info_t g_sensor_family_file = {
     .update = family_update,
     .list = family_list,
     .notify = sensor_family_notify,
-    .write = NULL
+    .write = NULL,
+    .free_desc = NULL
 };
 
 // ***************************************************************************
@@ -141,7 +142,7 @@ static void file_watch_free(void * vfile) {
 
     if (file) {
         sysdep_file_watch_free(file);
-        if (file->name) 
+        if (file->name)
             free(file->name);
         free(file);
     }
@@ -152,7 +153,7 @@ static sensor_status_t file_watch_add(sensor_family_t * family, const char * pat
     file_priv_t *   priv = (family->priv);
     fileinfo_t *    info;
     (void)flags;
-    
+
     if ((info = calloc(1, sizeof(*info))) == NULL) {
         return SENSOR_ERROR;
     }
@@ -178,18 +179,18 @@ static sensor_status_t file_watch_add(sensor_family_t * family, const char * pat
 
 // ***************************************************************************
 static sensor_status_t  file_watch_del(
-                            sensor_family_t * family, 
+                            sensor_family_t * family,
                             const char * path) {
     file_priv_t *   priv = (family->priv);
     fileinfo_t      ref_info;
-    
+
     ref_info.name = (char *) path;
     errno = 0;
     priv->files = slist_remove(priv->files, &ref_info, NULL, file_watch_free); // TODO
     if (errno != 0) {
         return SENSOR_ERROR;
     }
-    
-    return SENSOR_SUCCESS;                            
+
+    return SENSOR_SUCCESS;
 }
 

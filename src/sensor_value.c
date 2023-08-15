@@ -79,11 +79,9 @@ typedef struct {
     size_t off;
 } sensor_value_info_t;
 static sensor_value_info_t s_sensor_value_info[SENSOR_VALUE_NB + 1] = { { SIZE_MAX, SIZE_MAX}, };
-//#ifndef __offsetof
-# define voffsetof(type, field) ((size_t)(&((type *)0)->field))
-//#endif
+
 #define SENSOR_VALUE_INFO_INIT(val, field) \
-    (sensor_value_info_t) { sizeof(val.field), voffsetof(sensor_value_t, field) }
+    (sensor_value_info_t) { sizeof(val.field), VLIB_OFFSETOF(sensor_value_t, field) }
 
 // *************************************************************************************
 void sensor_value_info_init() {

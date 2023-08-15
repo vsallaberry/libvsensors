@@ -29,13 +29,13 @@
 #include "libvsensors/sensor.h"
 
 /** internal common queue type */
-typedef slist_t * common_queue_t;
+typedef slist_t * sensor_common_queue_t;
 
 typedef struct {
-    void *          sysdep;
-    vthread_t *     thread;
-    common_queue_t  event_queue;
-    pthread_mutex_t mutex;
+    void *                  sysdep;
+    vthread_t *             thread;
+    sensor_common_queue_t   event_queue;
+    pthread_mutex_t         mutex;
 } common_priv_t;
 
 #ifdef __cplusplus

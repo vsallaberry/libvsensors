@@ -98,7 +98,7 @@ typedef enum {
     SIF_NONE        = 0,
     //SIF_...       = 1 << 0
     SIF_RESERVED    = 1 << 16, // last
-    SIF_DEFAULT     = SIF_NONE    
+    SIF_DEFAULT     = SIF_NONE
 } sensor_init_flag_t;
 
 /** RFU/TBD/TODO sensor sample watch events
@@ -136,8 +136,9 @@ typedef struct {
     sensor_status_t     (*free)(struct sensor_family_s *f);
 
     /** list(): return a new allocated list, which will be freed by libvsensors:
-     * The content of list (sensor_desc_t*) is owned by the family and must be freed by it,
-     * but the list itself belongs to libvsensors and must NOT be used anymore by the family. */
+     * The content of list (sensor_desc_t*) is created by the family, but belongs
+     * to libvsensors which will free it using the (*free_desc) function defined below.
+     * The list itself belongs to libvsensors too, and must NOT be used anymore by the family. */
     slist_t *           (*list)(struct sensor_family_s *f);
 
     /** update(): called by libvsensors when the update_interval_ms has been reached.
@@ -158,6 +159,10 @@ typedef struct {
      * event is a bit combination of sensor_watch_event_t */
     sensor_status_t     (*notify)(unsigned int event, struct sensor_family_s *f,
                                   struct sensor_sample_s *, sensor_watch_ev_data_t * ev_data);
+
+    /** free_desc(): free a single sensor_desc_t for this family. See list() above. */
+    void                (*free_desc)(void * /*struct sensor_desc_s* */ vdesc);
+
 } sensor_family_info_t;
 
 
@@ -200,7 +205,8 @@ typedef sensor_status_t (*sensor_watch_callback_t)(
             unsigned int                event, /* bit combination of sensor_watch_event_t */
             struct sensor_ctx_s *       sctx,
             struct sensor_sample_s *    sample,
-            sensor_watch_ev_data_t *    event_data);
+            sensor_watch_ev_data_t *    event_data,
+            void *                      user_data);
 
 /** Sensor warning Levels for sensor_watch_t */
 enum {
@@ -216,7 +222,9 @@ enum {
 typedef struct {
     struct timeval          update_interval;
     sensor_value_t          update_levels[SENSOR_LEVEL_NB];
+    sensor_property_t *     properties;
     sensor_watch_callback_t callback;
+    void *                  callback_data;
 } sensor_watch_t;
 
 #define SENSOR_WATCH_INITIALIZER(_interval_ms, _callback)                   \
@@ -228,6 +236,7 @@ typedef struct {
         .update_levels = { (sensor_value_t) { .type = SENSOR_VALUE_NULL},   \
                            (sensor_value_t) { .type = SENSOR_VALUE_NULL},   \
                            (sensor_value_t) { .type = SENSOR_VALUE_NULL} }, \
+        .properties = NULL, .callback_data = NULL                           \
     }
 
 /**
@@ -535,14 +544,14 @@ sensor_status_t sensor_family_register(
                     const sensor_family_info_t *    fam_info);
 
 /** loading family requests libvsensors to create a temporary family desc list
- * When family will be loaded, its 'update()' function will return 
+ * When family will be loaded, its 'update()' function will return
  * SENSOR_RELOAD_FAMILY. sensor_family_t.notify can be used to wait readyness. */
 slist_t *       sensor_family_loading_list(sensor_family_t * family);
 
 /** RFU: send a signal to the libvsensors from families/plugins */
 sensor_status_t sensor_family_signal(sensor_family_t * family);
 
-/** COMMON FAMILY providing utilities for other sensors 
+/** COMMON FAMILY providing utilities for other sensors
  * see sensor_common.h */
 
 /* ************************************************************************

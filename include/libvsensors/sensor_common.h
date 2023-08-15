@@ -27,7 +27,7 @@ typedef enum {
     CQT_NONE = 0,
     CQT_DEVICE,
     CQT_NB // last
-} common_queue_type_t;
+} sensor_common_queue_type_t;
 
 typedef enum {
     CDA_NONE = 0,
@@ -35,21 +35,22 @@ typedef enum {
     CDA_REMOVE,
     CDA_CHANGE,
     CDA_NB // last
-} common_device_action_t;
-
-typedef struct { 
-    char *                  name;
-    char *                  type;
-    common_device_action_t  action;
-} common_device_t;
+} sensor_common_device_action_t;
 
 typedef struct {
-    common_queue_type_t     type;
+    char *                          name;
+    char *                          type;
+    sensor_common_device_action_t   action;
+} sensor_common_device_t;
+
+typedef struct {
+    sensor_common_queue_type_t      type;
     union {
-        common_device_t     dev;
-        void *              data;
-    }                       u;
-} common_event_t;
+        sensor_common_device_t      dev;
+        void *                      data;
+    }                               u;
+    void *                          sysdep;
+} sensor_common_event_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,17 +62,17 @@ extern "C" {
 sensor_family_t *   sensor_family_common(sensor_ctx_t * sctx);
 
 /** apply function to event queue events. the process function can return:
-  * + SENSOR_NOT_SUPPORTED: event is kept
-  * + SENSOR_ERROR: event is kept, loop is stopped
-  * + SENSOR_SUCCESS: event is deleted from the queue */
+  * + SENSOR_NOT_SUPPORTED: event is kept, loop continues.
+  * + SENSOR_ERROR: event is deleted, loop is stopped.
+  * + SENSOR_SUCCESS: event is deleted from the queue, and the loop continues. */
 sensor_status_t     sensor_common_queue_process(
                         sensor_ctx_t * sctx,
-                        sensor_status_t (*fun)(common_event_t * event, void * user_data),
+                        sensor_status_t (*fun)(sensor_common_event_t * event, void * user_data),
                         void * user_data);
 
 /** add an event to the common event queue
  *  event must be allocated and will be freed with common_event_free(),common_queue_process() */
-sensor_status_t     sensor_common_queue_add(sensor_ctx_t * sctx, common_event_t * event);
+sensor_status_t     sensor_common_queue_add(sensor_ctx_t * sctx, sensor_common_event_t * event);
 
 
 // ****************************************

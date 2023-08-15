@@ -79,6 +79,7 @@ const sensor_family_info_t g_sensor_family_power = {
     .update = family_update,
     .list = family_list,
     .notify = NULL,
-    .write = NULL
+    .write = NULL,
+    .free_desc = NULL
 };
 

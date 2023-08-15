@@ -81,12 +81,11 @@ int                 sysdep_smc_writekey(
 typedef struct {
     sensor_family_t *   family;
     void *              smc_handle;
-    slist_t *           descs;
     unsigned int        output_bufsz;
     unsigned int        value_offset;
-    slist_t *           free_list;
     char *              smc_buffer;
     slist_t *           jobs;
+    slist_t *           descs;
 } smc_priv_t;
 
 typedef sensor_status_t (*smc_format_fun_t)(
@@ -135,6 +134,11 @@ static sensor_status_t smc_family_free(sensor_family_t *family) {
         vjob_killandfree(job);
     }
     slist_free(priv->jobs, NULL);
+    if (priv->descs) {
+        // if not null, libvsensors has not requested it
+        LOG_VERBOSE(family->log, "freeing in-construction internal sensor desc list...");
+        slist_free(priv->descs, smc_free_desc);
+    }
 
     if (sysdep_smc_close(priv->smc_handle, family->log) == 0) {
         result = SENSOR_SUCCESS;
@@ -143,8 +147,6 @@ static sensor_status_t smc_family_free(sensor_family_t *family) {
        result = SENSOR_ERROR;
     }
 
-    slist_free(priv->descs, smc_free_desc);
-    slist_free(priv->free_list, free);
     if (priv->smc_buffer != NULL) {
         free(priv->smc_buffer);
     }
@@ -166,11 +168,11 @@ static sensor_status_t smc_family_init(sensor_family_t *family) {
     }
     smc_priv_t * priv = family->priv;
     priv->smc_buffer = NULL;
-    priv->free_list = NULL;
     priv->smc_handle = NULL;
-    priv->descs = NULL;
     priv->output_bufsz = 0;
     priv->value_offset = 0;
+    priv->jobs = NULL;
+    priv->descs = NULL;
     if (sysdep_smc_open(&priv->smc_handle, family->log,
                         &(priv->output_bufsz), &(priv->value_offset)) != SENSOR_SUCCESS) {
        LOG_ERROR(family->log, "SMCOpen() failed!");
@@ -199,16 +201,17 @@ static void * smc_list_job(void * vdata) {
 
     /* restore killmode */
     vjob_killmode(old_ena, old_asy, NULL, NULL);
-    
+
     if (ret == SENSOR_SUCCESS) {
         return (void*)0;
     }
     return VJOB_ERR_RESULT;
 }
 
+/* ************************************************************************ */
 static slist_t * smc_family_loading_list(sensor_family_t * family) {
     smc_priv_t *    priv = (smc_priv_t *) family->priv;
-    
+
     if (priv->jobs == NULL) {
         priv->jobs = slist_prepend(priv->jobs, vjob_run(smc_list_job, family));
         if (priv->jobs == NULL || priv->jobs->data == NULL) {
@@ -220,19 +223,14 @@ static slist_t * smc_family_loading_list(sensor_family_t * family) {
     return sensor_family_loading_list(family);
 }
 
+/* ************************************************************************ */
 static slist_t * smc_family_list(sensor_family_t *family) {
     smc_priv_t *    priv = (smc_priv_t *) family->priv;
-    slist_t *       list = NULL, * last = NULL;
+    slist_t *       list = priv->descs;
 
-    SLIST_FOREACH_DATA(priv->descs, desc, sensor_desc_t *) {
-        last = slist_append(last, desc);
-        if (list == NULL)
-            list = last;
-        else if (last != NULL)
-            last = last->next;
-    }
     LOG_DEBUG(family->log, "%s(): list length = %u", __func__, slist_length(list));
 
+    priv->descs = NULL; // we lose ownership of descs list as soon as we give it to libvsensors.
     return list;
 }
 
@@ -261,7 +259,7 @@ static sensor_status_t smc_family_loading_update(sensor_sample_t *sensor, const 
             vjob_free(to_free->data);
             slist_free_1(to_free, NULL);
             sensor->desc->family->info = &g_sensor_family_smc_loaded;
-            LOG_VERBOSE(sensor->desc->family->log, "RELOAD_FAMILY");            
+            LOG_VERBOSE(sensor->desc->family->log, "RELOAD_FAMILY");
             return SENSOR_RELOAD_FAMILY;
         } else {
             return SENSOR_LOADING;
@@ -277,15 +275,15 @@ static sensor_status_t sensor_family_loading_notify(
     smc_priv_t * priv = (smc_priv_t *) family->priv;
     (void)sample;
     (void)ev_data;
-    
+
     if ((event & SWE_FAMILY_WAIT_LOAD) != 0) {
         SLISTC_FOREACH_DATA(priv->jobs, job, vjob_t *) {
             vjob_wait(job);
         }
     }
-    return SENSOR_SUCCESS;                                     
+    return SENSOR_SUCCESS;
 }
-                                  
+
 /* ************************************************************************ */
 #define SMC_FAMILY_NAME "smc"
 const sensor_family_info_t g_sensor_family_smc = {
@@ -295,7 +293,8 @@ const sensor_family_info_t g_sensor_family_smc = {
     .update = smc_family_loading_update,
     .list = smc_family_loading_list,
     .notify = sensor_family_loading_notify,
-    .write = NULL
+    .write = NULL,
+    .free_desc = smc_free_desc
 };
 const sensor_family_info_t g_sensor_family_smc_loaded = {
     .name = SMC_FAMILY_NAME,
@@ -304,7 +303,8 @@ const sensor_family_info_t g_sensor_family_smc_loaded = {
     .update = smc_family_update,
     .list = smc_family_list,
     .notify = NULL,
-    .write = smc_family_write
+    .write = smc_family_write,
+    .free_desc = smc_free_desc
 };
 
 /* ************************************************************************************* */
@@ -989,7 +989,7 @@ static sensor_status_t smc_getformatfun(smc_desc_key_t * key, uint32_t value_typ
             value->data.b.maxsize = 0;
         }
         value->type = SMC_SV_TYPE_BYTES;
-        key->format_fun = smc_format_bytes; 
+        key->format_fun = smc_format_bytes;
         key->write_fun = smc_write_bytes;
     }
     return SENSOR_SUCCESS;
@@ -1036,7 +1036,7 @@ static sensor_status_t smc_getsensorvalue(
     smc_priv_t *    priv = (smc_priv_t *) family->priv;
     unsigned int    value_size;
     char *          value_bytes = priv->smc_buffer + priv->value_offset;
-        
+
     value_size = sysdep_smc_readkey(key->value_key, NULL, &(key->key_info),
                                     priv->smc_buffer, priv->smc_handle, family->log);
 

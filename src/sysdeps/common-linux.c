@@ -63,15 +63,15 @@ static struct udev * (*udev_unref)(struct udev *) = NULL;
 #endif
 
 #include "vlib/util.h"
- 
+
 #include "common_private.h"
 
 // ***************************************************************************
 typedef struct {
 #ifndef SENSORS_UDEV_HEADER
     void *                  udevlib;
-#endif    
-    struct udev*            udev; 
+#endif
+    struct udev*            udev;
     struct udev_monitor*    udev_mon;
     int                     udev_mon_fd;
 } sysdep_t;
@@ -81,10 +81,10 @@ static int common_linux_thread_devread(
                 vthread_event_t         event,
                 void *                  event_data,
                 void *                  callback_user_data);
-                
+
 #ifndef SENSORS_UDEV_HEADER
 # pragma GCC diagnostic push
-# pragma GCC diagnostic ignored "-Wpedantic"        
+# pragma GCC diagnostic ignored "-Wpedantic"
 static sensor_status_t common_linux_udevlib_init(sensor_family_t * family) {
     common_priv_t * priv = (family->priv);
     sysdep_t *      sysdep = (sysdep_t *) priv->sysdep;
@@ -92,7 +92,7 @@ static sensor_status_t common_linux_udevlib_init(sensor_family_t * family) {
     if (sysdep->udevlib != NULL) {
         return SENSOR_SUCCESS;
     }
-    
+
     static const char * libs[] = { "libudev.so", "libudev.so.1", "libudev.so.2", "libudev.so.3", "libudev.so.4", "libudev.so.0", NULL };
 
     for (const char ** lib = libs; sysdep->udevlib == NULL && *lib; ++lib) {
@@ -117,7 +117,7 @@ static sensor_status_t common_linux_udevlib_init(sensor_family_t * family) {
     ||  (udev_device_get_subsystem = dlsym(sysdep->udevlib, "udev_device_get_subsystem")) == NULL
     ||  (udev_device_get_driver = dlsym(sysdep->udevlib, "udev_device_get_driver")) == NULL
     ||  (udev_device_get_sysattr_value = dlsym(sysdep->udevlib, "udev_device_get_sysattr_value")) == NULL
-    ||  (udev_device_unref = dlsym(sysdep->udevlib, "udev_device_unref")) == NULL        
+    ||  (udev_device_unref = dlsym(sysdep->udevlib, "udev_device_unref")) == NULL
     ||  (udev_monitor_unref = dlsym(sysdep->udevlib, "udev_monitor_unref")) == NULL
     ||  (udev_unref = dlsym(sysdep->udevlib, "udev_unref")) == NULL) {
         LOG_WARN(family->log, "cannot find symbols in udev library -> no dynamic device");
@@ -127,18 +127,18 @@ static sensor_status_t common_linux_udevlib_init(sensor_family_t * family) {
     }
     LOG_VERBOSE(family->log, "udevlib loaded.");
     return SENSOR_SUCCESS;
-}        
+}
 # pragma GCC diagnostic pop
 
 static sensor_status_t common_linux_udevlib_destroy(sensor_family_t * family) {
     common_priv_t * priv = (family->priv);
     sysdep_t *      sysdep = (sysdep_t *) priv->sysdep;
-    
+
     if (sysdep->udevlib != NULL) {
         dlclose(sysdep->udevlib);
-        sysdep->udevlib = NULL;    
-    }    
-    
+        sysdep->udevlib = NULL;
+    }
+
     return SENSOR_SUCCESS;
 }
 #else
@@ -152,17 +152,17 @@ static sensor_status_t common_linux_udevlib_destroy(sensor_family_t * family) {
 }
 #endif
 
-static sensor_status_t common_linux_udev_init(sensor_family_t * family) {    
+static sensor_status_t common_linux_udev_init(sensor_family_t * family) {
     common_priv_t * priv = (family->priv);
     sysdep_t *      sysdep = (sysdep_t *) priv->sysdep;
-    
+
     if (common_linux_udevlib_init(family) != SENSOR_SUCCESS) {
         LOG_WARN(family->log, "cannot load udev library -> no dynamic device");
         return SENSOR_ERROR;
     }
 
     sysdep->udev = udev_new();
-    
+
     if (!sysdep->udev) {
         LOG_ERROR(family->log, "udev_new() failed\n");
         return SENSOR_ERROR;
@@ -174,15 +174,15 @@ static sensor_status_t common_linux_udev_init(sensor_family_t * family) {
         LOG_ERROR(family->log, "udev_monitor_new() failed\n");
         return SENSOR_ERROR;
     }
-    
+
     udev_monitor_enable_receiving(sysdep->udev_mon);
 
     sysdep->udev_mon_fd = udev_monitor_get_fd(sysdep->udev_mon);
-    
+
     vthread_register_event(priv->thread, VTE_FD_READ, VTE_DATA_FD(sysdep->udev_mon_fd), common_linux_thread_devread, family);
-    
+
     LOG_VERBOSE(family->log, "udev initialized.");
-    
+
     return SENSOR_SUCCESS;
 }
 
@@ -190,18 +190,18 @@ static sensor_status_t common_linux_udev_destroy(sensor_family_t * family) {
     common_priv_t * priv = (family->priv);
     sysdep_t *      sysdep = (sysdep_t *) priv->sysdep;
     sensor_status_t ret;
-    
+
     if (sysdep->udev_mon != NULL) {
         udev_monitor_unref(sysdep->udev_mon);
         sysdep->udev_mon = NULL;
         sysdep->udev_mon_fd = -1;
     }
-    
+
     if (sysdep->udev != NULL) {
         udev_unref(sysdep->udev);
         sysdep->udev = NULL;
     }
-    
+
     ret = common_linux_udevlib_destroy(family);
 
     return ret;
@@ -212,7 +212,7 @@ static sensor_status_t common_linux_handle_device(sensor_family_t * family, int 
     sysdep_t *          sysdep = (sysdep_t *) priv->sysdep;
     struct udev_device* dev;
     (void)fd;
-    
+
     if (sysdep == NULL || sysdep->udev_mon == NULL
     ||  (dev = udev_monitor_receive_device(sysdep->udev_mon)) == NULL) {
         return SENSOR_ERROR;
@@ -222,17 +222,17 @@ static sensor_status_t common_linux_handle_device(sensor_family_t * family, int 
     const char * devtype = udev_device_get_devtype(dev);
     const char * devsubsys = udev_device_get_subsystem(dev);
     const char * devdrv = udev_device_get_driver(dev);
-    
+
     if (!devnode) {
         return SENSOR_ERROR;
     }
-    
-    common_device_action_t action = CDA_NONE;
+
+    sensor_common_device_action_t action = CDA_NONE;
     if (! saction)
         saction = "exists";
-                               
+
     LOG_DEBUG(family->log, "UDEV %s EVENT: %s (%s/%s/%s)", saction, devnode, devsubsys, devtype, devdrv);
-                
+
     if (!strcasecmp(saction, "add")) {
         action = CDA_ADD;
     } else if (!strcasecmp(saction, "remove")) {
@@ -241,19 +241,20 @@ static sensor_status_t common_linux_handle_device(sensor_family_t * family, int 
         action = CDA_CHANGE;
     } */
     if (action != CDA_NONE) {
-        common_event_t * event = (common_event_t *) calloc(1, sizeof(common_event_t));
+        sensor_common_event_t * event = (sensor_common_event_t *) calloc(1, sizeof(sensor_common_event_t));
         if (event != NULL) {
             event->type = CQT_DEVICE;
             event->u.dev.type = NULL;
             asprintf(&event->u.dev.type, "%s/%s/%s", devsubsys, devtype, devdrv);
             event->u.dev.action = action;
-            event->u.dev.name = strdup(devnode);            
+            event->u.dev.name = strdup(devnode);
+            event->sysdep = NULL;
             sensor_common_queue_add(family->sctx, event);
         }
     }
-           
+
     udev_device_unref(dev);
-    
+
     return SENSOR_SUCCESS;
 }
 
@@ -265,7 +266,7 @@ static int common_linux_thread_devread(
     (void)vthread;
     (void)event;
     common_linux_handle_device(callback_user_data, VTE_FD_DATA(event_data));
-    return 0;                
+    return 0;
 }
 
 sensor_status_t common_linux_udev_handle_events(sensor_family_t * family) {
@@ -275,27 +276,27 @@ sensor_status_t common_linux_udev_handle_events(sensor_family_t * family) {
 
     pollfd.events = POLLIN;
     pollfd.fd = sysdep->udev_mon_fd;
-    
+
     while (poll(&pollfd, 1, 0) > 0) {
         if ((pollfd.revents & POLLIN) == 0) {
             continue ;
         }
         common_linux_handle_device(family, pollfd.fd);
     }
-    
+
     return SENSOR_SUCCESS;
 }
 
 /* ************************************************************************ */
 sensor_status_t sysdep_common_init(sensor_family_t * family) {
-    common_priv_t *   priv = (family->priv);    
+    common_priv_t *   priv = (family->priv);
 
     if (priv->sysdep != NULL) {
         return SENSOR_SUCCESS;
     }
-    
+
     sysdep_t *      sysdep;
-        
+
     priv->sysdep = calloc(1, sizeof(sysdep_t));
     if (priv->sysdep == NULL) {
         LOG_ERROR(family->log, "error, cannot malloc %s sysdep data", family->info->name);
@@ -304,16 +305,16 @@ sensor_status_t sysdep_common_init(sensor_family_t * family) {
     }
 
     sysdep = priv->sysdep;
-    
+
     sysdep->udev = NULL;
-#  ifndef SENSORS_UDEV_HEADER    
+#  ifndef SENSORS_UDEV_HEADER
     sysdep->udevlib = NULL;
 #  endif
-         
+
     if (common_linux_udev_init(family) != SENSOR_SUCCESS) {
         LOG_WARN(family->log, "cannot initialize udev");
     }
-   
+
     return SENSOR_SUCCESS;
 }
 
@@ -325,7 +326,7 @@ sensor_status_t sysdep_common_destroy(sensor_family_t * family) {
         sysdep_t * sysdep = (sysdep_t *) priv->sysdep;
 
         common_linux_udev_destroy(family);
-                
+
         priv->sysdep = NULL;
         free(sysdep);
     }
@@ -334,9 +335,9 @@ sensor_status_t sysdep_common_destroy(sensor_family_t * family) {
 
 /* ************************************************************************ */
 sensor_status_t linux_common_udev_monitor_update(
-                        sensor_family_t * family, 
-                        const char * subsystem, 
-                        const char * devtype, 
+                        sensor_family_t * family,
+                        const char * subsystem,
+                        const char * devtype,
                         const char * tag) {
     common_priv_t * priv = (family->priv);
     sysdep_t *      sysdep = (sysdep_t *) (priv ? priv->sysdep : NULL);
@@ -346,7 +347,7 @@ sensor_status_t linux_common_udev_monitor_update(
         LOG_WARN(family->log, "udev_monitor_update(): udev not initialized");
         return SENSOR_ERROR;
     }
-        
+
     if (subsystem != NULL
     &&  udev_monitor_filter_add_match_subsystem_devtype(sysdep->udev_mon, subsystem, devtype) < 0) {
         ret = SENSOR_ERROR;
@@ -356,9 +357,9 @@ sensor_status_t linux_common_udev_monitor_update(
         ret = SENSOR_ERROR;
     }
     if (udev_monitor_filter_update(sysdep->udev_mon) < 0) {
-        ret = SENSOR_ERROR;    
+        ret = SENSOR_ERROR;
     }
-    
+
     return ret;
 }
 

@@ -188,31 +188,31 @@ static sensor_status_t disk_linux_add_device(sensor_family_t * family, const cha
     return SENSOR_SUCCESS;
 }
 
-static sensor_status_t disk_linux_handle_event(common_event_t * event, void * user_data) {
+static sensor_status_t disk_linux_handle_event(sensor_common_event_t * event, void * user_data) {
     sensor_family_t *   family = (sensor_family_t *) user_data;
     disk_priv_t *       priv = (family->priv);
     sysdep_t *          sysdep = (sysdep_t *) priv->sysdep;
     
     // Only block disk devices are processed. Others (including partitions) are ignored.
     // Please ensure that the call to linux_common_udev_monitor_update() in
-    // sysdep_disk_init() below matches with this check, otherwise the queue won't be emptied.        
-    if (event->type != CQT_DEVICE 
+    // sysdep_disk_init() below matches with this check, otherwise the queue won't be emptied.
+    if (event->type != CQT_DEVICE
     ||  fnmatch(DISK_UDEV_SUBSYSTEM "/" DISK_UDEV_DEVTYPE "/*", event->u.dev.type, FNM_CASEFOLD) != 0) {
         return SENSOR_NOT_SUPPORTED;
     }
-                    
-    const char * diskname = event->u.dev.name;            
-                
+
+    const char * diskname = event->u.dev.name;
+
     if (!strncasecmp(diskname, "/dev/", 5))
-        diskname += 5; 
-                               
-    LOG_DEBUG(family->log, "queue: processing device %s event: %s (%s)", 
+        diskname += 5;
+
+    LOG_DEBUG(family->log, "queue: processing device %s event: %s (%s)",
               event->u.dev.action == CDA_ADD ? "add" : "remove", event->u.dev.name, event->u.dev.type);
 
-    if (event->u.dev.action == CDA_ADD) {                
+    if (event->u.dev.action == CDA_ADD) {
         char        path[PATH_MAX];
         struct stat st;
-                    
+
         snprintf(path, sizeof(path), "%s/%s", SYS_BLOCK_DIR, diskname);
         if (stat(path, &st) == 0 && ((st.st_mode & S_IFMT) & (S_IFLNK | S_IFDIR)) != 0) {
             if (disk_linux_add_device(family, diskname) == SENSOR_SUCCESS) {
