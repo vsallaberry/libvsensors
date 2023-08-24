@@ -505,7 +505,7 @@ sensor_ctx_t * sensor_init(logpool_t * logs, unsigned int flags) {
 static int sensor_watch_printnode(FILE * out, const avltree_node_t * node) {
     char fam[4];
     char lab[8];
-    sensor_sample_t * sample = (sensor_sample_t *) node->data;
+    sensor_sample_t * sample = (sensor_sample_t *) avltree_node_data(node);
 
     snprintf(fam, sizeof(fam)/sizeof(*fam), "%s",
              SENSOR_DESC_FAMNAME(sample->desc));
@@ -573,15 +573,14 @@ static int sensor_checktree_desc(
 }
 
 /* ************************************************************************ */
-static AVLTREE_DECLARE_VISITFUN(sensor_checkdesc_visit, tree, node, context, vdata) {
-    sensor_desc_t *   tree_desc = (sensor_desc_t *) node->data;
+static AVLTREE_DECLARE_VISITFUN(sensor_checkdesc_visit, node_data, context, vdata) {
+    sensor_desc_t *   tree_desc = (sensor_desc_t *) node_data;
     slist_t **        plist     = (slist_t **) vdata;
     sensor_desc_t *   list_desc = plist && *plist ? (sensor_desc_t *) (*plist)->data : NULL;
     sensor_desc_t *   list_next = plist != NULL && *plist != NULL && (*plist)->next != NULL
                                   ? (sensor_desc_t *) (*plist)->next->data : NULL;
     /*log_t *           log       = tree_desc != NULL ? tree_desc->family->sctx->log
                                   : (list_desc != NULL ? list_desc->family->sctx->log : NULL);*/
-    (void) tree;
     (void) context;
 
     return sensor_checktree_desc(plist, tree_desc, list_desc, "desc",
@@ -589,15 +588,14 @@ static AVLTREE_DECLARE_VISITFUN(sensor_checkdesc_visit, tree, node, context, vda
 }
 
 /* ************************************************************************ */
-static AVLTREE_DECLARE_VISITFUN(sensor_checkwatch_visit, tree, node, context, vdata) {
-    sensor_sample_t * tree_sample   = (sensor_sample_t *) node->data;
+static AVLTREE_DECLARE_VISITFUN(sensor_checkwatch_visit, node_data, context, vdata) {
+    sensor_sample_t * tree_sample   = (sensor_sample_t *) node_data;
     slist_t **        plist         = (slist_t **) vdata;
     sensor_sample_t * list_sample   = plist && *plist ? (sensor_sample_t *) (*plist)->data : NULL;
     sensor_sample_t * next_sample   = plist != NULL && *plist != NULL && (*plist)->next != NULL
                                       ? (sensor_sample_t *) (*plist)->next->data : NULL;
     /*log_t *           log           = tree_sample != NULL ? tree_sample->desc->family->sctx->log
                             : (list_sample != NULL ? list_sample->desc->family->sctx->log : NULL);*/
-    (void) tree;
     (void) context;
 
     return sensor_checktree_desc(plist, tree_sample, list_sample, "sample",
@@ -1195,10 +1193,9 @@ static int sensor_desc_match_unlocked(const sensor_desc_t *  sensor,
 }
 
 /* ************************************************************************ */
-AVLTREE_DECLARE_VISITFUN(sensor_watch_visit_find, tree, node, context, vdata) {
-    sensor_sample_t *       sample  = (sensor_sample_t *) node->data;
+AVLTREE_DECLARE_VISITFUN(sensor_watch_visit_find, node_data, context, vdata) {
+    sensor_sample_t *       sample  = (sensor_sample_t *) node_data;
     sensor_find_range_t *   data    = (sensor_find_range_t *) vdata;
-    (void) tree;
     (void) context;
 
     LOG_DEBUG(sample->desc->family->sctx->log, "sensor_watch_find(): check '%s/%s'",
@@ -1228,10 +1225,9 @@ AVLTREE_DECLARE_VISITFUN(sensor_watch_visit_find, tree, node, context, vdata) {
 }
 
 /* ************************************************************************ */
-AVLTREE_DECLARE_VISITFUN(sensor_desc_visit_find, tree, node, context, vdata) {
-    sensor_desc_t *         desc = (sensor_desc_t *) node->data;
+AVLTREE_DECLARE_VISITFUN(sensor_desc_visit_find, node_data, context, vdata) {
+    sensor_desc_t *         desc = (sensor_desc_t *) node_data;
     sensor_find_range_t *   data = (sensor_find_range_t *) vdata;
-    (void) tree;
     (void) context;
 
     LOG_DEBUG(desc->family->sctx->log, "sensor_desc_find(): check '%s/%s'",
@@ -1874,10 +1870,9 @@ typedef struct {
     double *        p_precision;
     double          min_precision;
 } sensor_watchpgcd_visit_t;
-static AVLTREE_DECLARE_VISITFUN(sensor_watchpgcd_visit, tree, node, context, user_data) {
-    sensor_watchparam_entry_t * watchparam = (sensor_watchparam_entry_t *) node->data;
+static AVLTREE_DECLARE_VISITFUN(sensor_watchpgcd_visit, node_data, context, user_data) {
+    sensor_watchparam_entry_t * watchparam = (sensor_watchparam_entry_t *) node_data;
     sensor_watchpgcd_visit_t *  data = (sensor_watchpgcd_visit_t *) user_data;
-    (void) tree;
     (void) context;
 
     unsigned long interval_ms = watchparam->watch.update_interval.tv_sec * 1000
