@@ -2006,8 +2006,10 @@ static sensor_status_t sensor_family_reload_visit(sensor_sample_t * sample, void
         }
     } else {
         char * pattern = NULL;
-        asprintf(&pattern, "%s/%s",
-                 SENSOR_DESC_FAMNAME(sample->desc), SENSOR_DESC_LABEL(sample->desc));
+        if (asprintf(&pattern, "%s/%s", SENSOR_DESC_FAMNAME(sample->desc),
+                                        SENSOR_DESC_LABEL(sample->desc)) < 0) {
+            pattern = NULL;
+        }
         new->pattern = pattern;
         new->id = 0;
     }

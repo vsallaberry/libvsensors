@@ -95,7 +95,8 @@ static sensor_status_t init_one_desc(
     char *  label = NULL;
 
     va_start(valist, fmt_label);
-    vasprintf(&label, fmt_label, valist);
+    if (vasprintf(&label, fmt_label, valist) < 0)
+        label = NULL;
     va_end(valist);
 
     if (sysdep_cpu_support(family, label) != SENSOR_SUCCESS) {

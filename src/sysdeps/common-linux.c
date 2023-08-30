@@ -245,7 +245,8 @@ static sensor_status_t common_linux_handle_device(sensor_family_t * family, int 
         if (event != NULL) {
             event->type = CQT_DEVICE;
             event->u.dev.type = NULL;
-            asprintf(&event->u.dev.type, "%s/%s/%s", devsubsys, devtype, devdrv);
+            if (asprintf(&event->u.dev.type, "%s/%s/%s", devsubsys, devtype, devdrv) < 0)
+                event->u.dev.type = NULL;
             event->u.dev.action = action;
             event->u.dev.name = strdup(devnode);
             event->sysdep = NULL;
